@@ -13,8 +13,25 @@ If you have a pre-built `MusicPlayer.exe`:
 
 ### Prerequisites
 - Windows 10 or later
-- Python 3.11 or later (download from https://www.python.org/downloads/)
-  - **IMPORTANT:** Check "Add Python to PATH" during installation
+- **Python 3.11 or 3.12** (download from https://www.python.org/downloads/)
+  - ⚠️ **IMPORTANT:** Do NOT use Python 3.14+ yet (pygame not available)
+  - ⚠️ **IMPORTANT:** Check "Add Python to PATH" during installation
+
+### Check Your Python Version
+Run this first:
+```cmd
+check_python.bat
+```
+
+Or check manually:
+```cmd
+python --version
+```
+
+If you have Python 3.14:
+- Download Python 3.12: https://www.python.org/downloads/release/python-3120/
+- Install it with "Add to PATH" checked
+- Use `python3.12` instead of `python` in commands below
 
 ### Option 1: Automated Build (Easiest)
 
