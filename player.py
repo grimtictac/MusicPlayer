@@ -29,13 +29,16 @@ class MusicPlayer(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title('Python Music Player')
-        self.geometry('640x360')
+        self.geometry('800x450')
 
         # playlist: list of dicts {path, title, basename, genre, comment}
         self.playlist = []
         # display_indices maps the current listbox positions -> playlist indices
         self.display_indices = []
         self.genres = set()
+        
+        # queue: list of playlist indices to play next
+        self.queue = []
 
         self.current_index = None
         self.is_playing = False
@@ -60,18 +63,33 @@ class MusicPlayer(tk.Tk):
 
         # Create Treeview with three columns: Title, Genre, Comment
         self.tree = ttk.Treeview(left, columns=('Title', 'Genre', 'Comment'), show='headings', height=15)
-        self.tree.column('Title', width=200, anchor='w')
-        self.tree.column('Genre', width=80, anchor='w')
-        self.tree.column('Comment', width=200, anchor='w')
+        self.tree.column('Title', width=180, anchor='w')
+        self.tree.column('Genre', width=60, anchor='w')
+        self.tree.column('Comment', width=150, anchor='w')
         self.tree.heading('Title', text='Title')
         self.tree.heading('Genre', text='Genre')
         self.tree.heading('Comment', text='Comment')
         self.tree.pack(side='left', fill='both', expand=True)
         self.tree.bind('<Double-1>', self._on_double)
+        self.tree.bind('<Button-3>', self._on_right_click)  # Right-click menu
 
         sb = ttk.Scrollbar(left, orient='vertical', command=self.tree.yview)
         sb.pack(side='left', fill='y')
         self.tree.config(yscrollcommand=sb.set)
+
+        # Middle section: Queue panel
+        queue_frame = ttk.LabelFrame(main, text='Queue', padding=4)
+        queue_frame.pack(side='left', fill='both', expand=False, padx=(8, 0))
+
+        self.queue_tree = ttk.Treeview(queue_frame, columns=('Track',), show='headings', height=15)
+        self.queue_tree.column('Track', width=150, anchor='w')
+        self.queue_tree.heading('Track', text='Upcoming')
+        self.queue_tree.pack(side='left', fill='both', expand=True)
+        self.queue_tree.bind('<Button-3>', self._on_queue_right_click)
+
+        queue_sb = ttk.Scrollbar(queue_frame, orient='vertical', command=self.queue_tree.yview)
+        queue_sb.pack(side='left', fill='y')
+        self.queue_tree.config(yscrollcommand=queue_sb.set)
 
         ctrl = ttk.Frame(main)
         ctrl.pack(side='right', fill='y')
@@ -108,7 +126,7 @@ class MusicPlayer(tk.Tk):
         self._on_volume()
 
         ttk.Separator(ctrl, orient='horizontal').pack(fill='x', pady=6)
-        self.lbl_status = ttk.Label(ctrl, text='Stopped', wraplength=180)
+        self.lbl_status = ttk.Label(ctrl, text='Stopped', wraplength=150)
         self.lbl_status.pack(fill='x', pady=2)
 
     def add_files(self):
@@ -314,6 +332,69 @@ class MusicPlayer(tk.Tk):
         # VLC volume is 0-100
         self.vlc_player.get_media_player().audio_set_volume(int(v * 100))
 
+    def _on_right_click(self, ev):
+        """Right-click on playlist to queue a song"""
+        item = self.tree.identify('item', ev.x, ev.y)
+        if not item:
+            return
+        
+        # Get the index of this item in the tree
+        all_items = self.tree.get_children()
+        try:
+            idx = all_items.index(item)
+            playlist_idx = self.display_indices[idx]
+        except (ValueError, IndexError):
+            return
+        
+        # Show context menu
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label='Add to Queue', command=lambda: self._queue_track(playlist_idx))
+        menu.post(ev.x_root, ev.y_root)
+
+    def _on_queue_right_click(self, ev):
+        """Right-click on queue to remove a song"""
+        item = self.queue_tree.identify('item', ev.x, ev.y)
+        if not item:
+            return
+        
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label='Remove', command=lambda: self._remove_from_queue(item))
+        menu.post(ev.x_root, ev.y_root)
+
+    def _queue_track(self, playlist_idx):
+        """Add a track to the queue"""
+        if playlist_idx in self.queue:
+            messagebox.showinfo('Already Queued', 'Track is already in the queue')
+            return
+        
+        self.queue.append(playlist_idx)
+        self._update_queue_display()
+        
+        track_title = self.playlist[playlist_idx].get('title', self.playlist[playlist_idx]['basename'])
+        messagebox.showinfo('Queued', f'"{track_title}" added to queue')
+
+    def _remove_from_queue(self, item):
+        """Remove a track from the queue"""
+        all_items = self.queue_tree.get_children()
+        try:
+            idx = all_items.index(item)
+            self.queue.pop(idx)
+            self._update_queue_display()
+        except (ValueError, IndexError):
+            pass
+
+    def _update_queue_display(self):
+        """Update the queue panel display"""
+        # Clear queue display
+        for item in self.queue_tree.get_children():
+            self.queue_tree.delete(item)
+        
+        # Add queued tracks
+        for playlist_idx in self.queue:
+            if 0 <= playlist_idx < len(self.playlist):
+                title = self.playlist[playlist_idx].get('title', self.playlist[playlist_idx]['basename'])
+                self.queue_tree.insert('', 'end', values=(title,))
+
     def _on_double(self, ev):
         sel = self.tree.selection()
         if not sel:
@@ -343,8 +424,19 @@ class MusicPlayer(tk.Tk):
         is_playing = self.vlc_player.is_playing()
         # If nothing is playing, and we expected playing, advance to next
         if not is_playing and self._last_action == 'playing' and not self.is_paused:
-            # small safety: if playlist has more than one entry
-            if self.playlist:
+            # Check if there's a queued track
+            if self.queue:
+                next_idx = self.queue.pop(0)
+                self._update_queue_display()
+                self._load(next_idx)
+                self.vlc_player.play()
+                self.is_playing = True
+                self.is_paused = False
+                self._last_action = 'playing'
+                self.btn_play.config(text='Pause')
+                self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
+            # Otherwise, auto-advance to next in playlist
+            elif self.playlist:
                 # advance respecting filter
                 if self.genre_var.get() != 'All' and self.display_indices:
                     try:
