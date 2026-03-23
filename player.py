@@ -187,11 +187,16 @@ class MusicPlayer(tk.Tk):
             pygame.mixer.music.load(path)
             self.current_index = index
             # highlight in current view if present
-            self.listbox.select_clear(0, 'end')
+            # Clear all selections first
+            for item in self.tree.selection():
+                self.tree.selection_remove(item)
             try:
                 pos = self.display_indices.index(index)
-                self.listbox.select_set(pos)
-                self.listbox.see(pos)
+                all_items = self.tree.get_children()
+                if pos < len(all_items):
+                    item = all_items[pos]
+                    self.tree.selection_set(item)
+                    self.tree.see(item)
             except ValueError:
                 # not in filtered view
                 pass
