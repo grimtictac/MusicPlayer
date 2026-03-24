@@ -10,8 +10,16 @@ Features:
 Run: python3 player.py
 """
 import os
+import sqlite3
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+
+# ── Configuration ────────────────────────────────────────
+PLAY_MIN_SECONDS = 5        # Only count a play after this many seconds
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_player.db')
 
 try:
     import vlc
@@ -29,7 +37,7 @@ class MusicPlayer(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title('Python Music Player')
-        self.geometry('800x450')
+        self.geometry('1100x500')
 
         # playlist: list of dicts {path, title, basename, genre, comment}
         self.playlist = []
@@ -50,9 +58,196 @@ class MusicPlayer(tk.Tk):
         self.vlc_player = self.vlc_instance.media_list_player_new()
         self.vlc_media_list = self.vlc_instance.media_list_new()
 
+        # Play tracking
+        self._playback_start_time = None   # epoch when current track started
+        self._play_recorded = False        # has this play already been counted?
+        self._init_database()
+
         self._build_ui()
+        # Reload previously-added tracks from the database
+        self._load_tracks_from_db()
         # poll to detect end of track
         self.after(500, self._poll)
+
+    # ── Database helpers ─────────────────────────────────
+
+    def _init_database(self):
+        """Create the SQLite database and tables if they don't exist."""
+        con = sqlite3.connect(DB_PATH)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS tracks (
+                id          INTEGER PRIMARY KEY,
+                file_path   TEXT UNIQUE NOT NULL,
+                title       TEXT,
+                play_count  INTEGER DEFAULT 0,
+                first_played TIMESTAMP,
+                last_played  TIMESTAMP,
+                file_created TIMESTAMP,
+                db_created   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS play_history (
+                id        INTEGER PRIMARY KEY,
+                track_id  INTEGER NOT NULL,
+                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(track_id) REFERENCES tracks(id)
+            )
+        """)
+        con.commit()
+        con.close()
+
+    def _load_tracks_from_db(self):
+        """Reload all previously-added tracks from the database on startup."""
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        cur.execute("SELECT file_path, title, play_count, first_played, last_played, file_created FROM tracks ORDER BY title")
+        rows = cur.fetchall()
+        con.close()
+
+        if not rows:
+            return
+
+        # Show progress bar
+        total = len(rows)
+        self.load_progress['maximum'] = total
+        self.load_progress['value'] = 0
+        self.load_progress.pack(fill='x', pady=2)
+        self.lbl_load.pack(fill='x')
+        self.lbl_status.config(text='Loading library…')
+
+        for i, (path, db_title, play_count, first_played, last_played, file_created) in enumerate(rows, 1):
+            if not os.path.isfile(path):
+                continue
+            if any(t['path'] == path for t in self.playlist):
+                continue
+
+            title = db_title or os.path.basename(path)
+            genre = 'Unknown'
+            comment = ''
+            if MutagenFile is not None:
+                try:
+                    tags = MutagenFile(path, easy=True)
+                    if tags is not None:
+                        title = tags.get('title', [title])[0]
+                        genre = tags.get('genre', [genre])[0]
+                        comment_val = tags.get('comment', [''])[0]
+                        comment = str(comment_val) if comment_val else ''
+                except Exception:
+                    pass
+
+            entry = {
+                'path': path,
+                'title': title,
+                'basename': os.path.basename(path),
+                'genre': genre,
+                'comment': comment,
+                'play_count': play_count or 0,
+                'first_played': first_played,
+                'last_played': last_played,
+                'file_created': file_created,
+            }
+            self.playlist.append(entry)
+            self.genres.add(genre)
+
+            self.load_progress['value'] = i
+            self.lbl_load.config(text=f'Loading {i}/{total}…')
+            if i % 50 == 0 or i == total:
+                self.update_idletasks()
+
+        # Hide progress bar
+        self.load_progress.pack_forget()
+        self.lbl_load.pack_forget()
+
+        self._update_genre_options()
+        self._apply_filter()
+        self.lbl_status.config(text=f'Loaded {len(self.playlist)} tracks')
+
+    def _ensure_track_in_db(self, path, title=''):
+        """Make sure a track row exists; return (play_count, first_played, last_played, file_created)."""
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        cur.execute("SELECT play_count, first_played, last_played, file_created FROM tracks WHERE file_path = ?", (path,))
+        row = cur.fetchone()
+        if row is None:
+            try:
+                file_created = datetime.fromtimestamp(os.path.getctime(path), tz=timezone.utc).isoformat()
+            except OSError:
+                file_created = None
+            cur.execute(
+                "INSERT INTO tracks (file_path, title, file_created) VALUES (?, ?, ?)",
+                (path, title, file_created)
+            )
+            con.commit()
+            con.close()
+            return (0, None, None, file_created)
+        con.close()
+        return row   # (play_count, first_played, last_played, file_created)
+
+    def _record_play(self, path):
+        """Increment play_count, set first/last played, and log history."""
+        now = datetime.now(tz=timezone.utc).isoformat()
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        # Update first_played only if it is NULL
+        cur.execute("""
+            UPDATE tracks
+               SET play_count  = play_count + 1,
+                   first_played = COALESCE(first_played, ?),
+                   last_played  = ?
+             WHERE file_path = ?
+        """, (now, now, path))
+        # Insert into play_history
+        cur.execute("SELECT id FROM tracks WHERE file_path = ?", (path,))
+        row = cur.fetchone()
+        if row:
+            cur.execute("INSERT INTO play_history (track_id, played_at) VALUES (?, ?)", (row[0], now))
+        con.commit()
+        con.close()
+
+    def _get_track_stats(self, path):
+        """Return (play_count, first_played, last_played, file_created) or defaults."""
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        cur.execute("SELECT play_count, first_played, last_played, file_created FROM tracks WHERE file_path = ?", (path,))
+        row = cur.fetchone()
+        con.close()
+        if row:
+            return row
+        return (0, None, None, None)
+
+    @staticmethod
+    def _format_ts(iso_str, relative=False):
+        """Format an ISO timestamp for display."""
+        if not iso_str:
+            return 'Never'
+        try:
+            dt = datetime.fromisoformat(iso_str)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(tz=None)  # convert to local
+        except Exception:
+            return str(iso_str)[:16]
+
+        if not relative:
+            return dt.strftime('%b %d, %Y')
+
+        now = datetime.now()
+        diff = now - dt.replace(tzinfo=None)
+        secs = int(diff.total_seconds())
+        if secs < 60:
+            return 'Just now'
+        if secs < 3600:
+            m = secs // 60
+            return f'{m} min ago'
+        if secs < 86400:
+            h = secs // 3600
+            return f'{h}h ago'
+        days = secs // 86400
+        if days == 1:
+            return 'Yesterday'
+        if days < 7:
+            return f'{days}d ago'
+        return dt.strftime('%b %d, %Y')
 
     def _build_ui(self):
         main = ttk.Frame(self)
@@ -61,14 +256,22 @@ class MusicPlayer(tk.Tk):
         left = ttk.Frame(main)
         left.pack(side='left', fill='both', expand=True)
 
-        # Create Treeview with three columns: Title, Genre, Comment
-        self.tree = ttk.Treeview(left, columns=('Title', 'Genre', 'Comment'), show='headings', height=15)
+        # Create Treeview with columns: Title, Genre, Comment, Plays, First Played, Last Played, File Created
+        self.tree = ttk.Treeview(left, columns=('Title', 'Genre', 'Comment', 'Plays', 'First Played', 'Last Played', 'File Created'), show='headings', height=15)
         self.tree.column('Title', width=180, anchor='w')
         self.tree.column('Genre', width=60, anchor='w')
-        self.tree.column('Comment', width=150, anchor='w')
+        self.tree.column('Comment', width=120, anchor='w')
+        self.tree.column('Plays', width=45, anchor='center')
+        self.tree.column('First Played', width=90, anchor='w')
+        self.tree.column('Last Played', width=90, anchor='w')
+        self.tree.column('File Created', width=90, anchor='w')
         self.tree.heading('Title', text='Title')
         self.tree.heading('Genre', text='Genre')
         self.tree.heading('Comment', text='Comment')
+        self.tree.heading('Plays', text='Plays')
+        self.tree.heading('First Played', text='First Played')
+        self.tree.heading('Last Played', text='Last Played')
+        self.tree.heading('File Created', text='File Created')
         self.tree.pack(side='left', fill='both', expand=True)
         self.tree.bind('<Double-1>', self._on_double)
         self.tree.bind('<Button-3>', self._on_right_click)  # Right-click menu
@@ -129,6 +332,14 @@ class MusicPlayer(tk.Tk):
         self.lbl_status = ttk.Label(ctrl, text='Stopped', wraplength=150)
         self.lbl_status.pack(fill='x', pady=2)
 
+        # Progress bar for folder loading (hidden by default)
+        self.load_progress = ttk.Progressbar(ctrl, orient='horizontal', mode='determinate')
+        self.load_progress.pack(fill='x', pady=2)
+        self.load_progress.pack_forget()   # hide until needed
+        self.lbl_load = ttk.Label(ctrl, text='', wraplength=150)
+        self.lbl_load.pack(fill='x')
+        self.lbl_load.pack_forget()
+
     def add_files(self):
         files = filedialog.askopenfilenames(title='Select audio files', filetypes=[('Audio', '*.mp3 *.wav *.ogg *.flac'), ('All files', '*.*')])
         for f in files:
@@ -143,19 +354,46 @@ class MusicPlayer(tk.Tk):
         if not folder:
             return
         exts = ('.mp3', '.wav', '.ogg', '.flac')
-        added = 0
+
+        # Phase 1: scan for all matching files
+        self.lbl_status.config(text='Scanning folder…')
+        self.update_idletasks()
+        audio_files = []
         for root, _, files in os.walk(folder):
             for name in files:
                 if name.lower().endswith(exts):
-                    path = os.path.join(root, name)
-                    if self._add_path(path):
-                        added += 1
-        if added == 0:
+                    audio_files.append(os.path.join(root, name))
+
+        total = len(audio_files)
+        if total == 0:
             messagebox.showinfo('No files', 'No supported audio files found in folder')
+            self.lbl_status.config(text='Stopped')
+            return
+
+        # Phase 2: load files with progress bar
+        self.load_progress['maximum'] = total
+        self.load_progress['value'] = 0
+        self.load_progress.pack(fill='x', pady=2)
+        self.lbl_load.pack(fill='x')
+
+        added = 0
+        for i, path in enumerate(audio_files, 1):
+            if self._add_path(path):
+                added += 1
+            self.load_progress['value'] = i
+            self.lbl_load.config(text=f'Loading {i}/{total}…')
+            if i % 25 == 0 or i == total:
+                self.update_idletasks()
+
+        # Hide progress bar
+        self.load_progress.pack_forget()
+        self.lbl_load.pack_forget()
+
         if self.current_index is None and self.playlist:
             self.current_index = 0
         self._update_genre_options()
         self._apply_filter()
+        self.lbl_status.config(text=f'Added {added} tracks')
 
     def _add_path(self, path):
         # returns True if added
@@ -179,6 +417,12 @@ class MusicPlayer(tk.Tk):
         entry = {'path': path, 'title': title, 'basename': os.path.basename(path), 'genre': genre, 'comment': comment}
         self.playlist.append(entry)
         self.genres.add(genre)
+        # Register in database and fetch stats
+        stats = self._ensure_track_in_db(path, title)
+        entry['play_count'] = stats[0]
+        entry['first_played'] = stats[1]
+        entry['last_played'] = stats[2]
+        entry['file_created'] = stats[3]
         return True
 
     def _update_genre_options(self):
@@ -198,7 +442,11 @@ class MusicPlayer(tk.Tk):
                 title = entry.get('title', entry['basename'])
                 genre = entry.get('genre', '')
                 comment = entry.get('comment', '')
-                self.tree.insert('', 'end', values=(title, genre, comment))
+                plays = entry.get('play_count', 0)
+                first_p = self._format_ts(entry.get('first_played'), relative=False)
+                last_p = self._format_ts(entry.get('last_played'), relative=True)
+                file_c = self._format_ts(entry.get('file_created'), relative=False)
+                self.tree.insert('', 'end', values=(title, genre, comment, plays, first_p, last_p, file_c))
                 self.display_indices.append(idx)
 
     def _load(self, index):
@@ -206,6 +454,10 @@ class MusicPlayer(tk.Tk):
             return False
         path = self.playlist[index]['path']
         try:
+            # Reset play tracking for new track
+            self._playback_start_time = None
+            self._play_recorded = False
+
             # Create VLC media and add to player
             media = self.vlc_instance.media_new(path)
             # Clear existing media by recreating the media list
@@ -273,6 +525,8 @@ class MusicPlayer(tk.Tk):
             self.is_playing = True
             self.is_paused = False
             self._last_action = 'playing'
+            self._playback_start_time = time.time()
+            self._play_recorded = False
             self.btn_play.config(text='Pause')
             self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
         except Exception as e:
@@ -283,6 +537,7 @@ class MusicPlayer(tk.Tk):
         self.is_playing = False
         self.is_paused = False
         self._last_action = 'stopped'
+        self._playback_start_time = None
         self.btn_play.config(text='Play')
         self.lbl_status.config(text='Stopped')
 
@@ -304,6 +559,8 @@ class MusicPlayer(tk.Tk):
         self.is_playing = True
         self.is_paused = False
         self._last_action = 'playing'
+        self._playback_start_time = time.time()
+        self._play_recorded = False
         self.btn_play.config(text='Pause')
         self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
 
@@ -324,6 +581,8 @@ class MusicPlayer(tk.Tk):
         self.is_playing = True
         self.is_paused = False
         self._last_action = 'playing'
+        self._playback_start_time = time.time()
+        self._play_recorded = False
         self.btn_play.config(text='Pause')
         self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
 
@@ -415,13 +674,34 @@ class MusicPlayer(tk.Tk):
             self.is_playing = True
             self.is_paused = False
             self._last_action = 'playing'
+            self._playback_start_time = time.time()
+            self._play_recorded = False
             self.btn_play.config(text='Pause')
             self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
 
     def _poll(self):
         # Called periodically to detect end of track and auto-advance
-        # VLC returns -1 when no media is playing
-        is_playing = self.vlc_player.is_playing()
+        # Use the underlying media_player for reliable state checks
+        mp = self.vlc_player.get_media_player()
+        is_playing = mp.is_playing()
+
+        # ── Play-tracking: record after PLAY_MIN_SECONDS ──
+        if (self._playback_start_time is not None
+                and not self._play_recorded
+                and self.current_index is not None):
+            elapsed = time.time() - self._playback_start_time
+            if elapsed >= PLAY_MIN_SECONDS:
+                path = self.playlist[self.current_index]['path']
+                self._record_play(path)
+                self._play_recorded = True
+                # Refresh in-memory stats and tree row
+                stats = self._get_track_stats(path)
+                entry = self.playlist[self.current_index]
+                entry['play_count'] = stats[0]
+                entry['first_played'] = stats[1]
+                entry['last_played'] = stats[2]
+                self._apply_filter()
+
         # If nothing is playing, and we expected playing, advance to next
         if not is_playing and self._last_action == 'playing' and not self.is_paused:
             # Check if there's a queued track
@@ -433,6 +713,8 @@ class MusicPlayer(tk.Tk):
                 self.is_playing = True
                 self.is_paused = False
                 self._last_action = 'playing'
+                self._playback_start_time = time.time()
+                self._play_recorded = False
                 self.btn_play.config(text='Pause')
                 self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
             # Otherwise, auto-advance to next in playlist
@@ -456,6 +738,8 @@ class MusicPlayer(tk.Tk):
                     self.is_playing = True
                     self.is_paused = False
                     self._last_action = 'playing'
+                    self._playback_start_time = time.time()
+                    self._play_recorded = False
                     self.btn_play.config(text='Pause')
                     self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
 
