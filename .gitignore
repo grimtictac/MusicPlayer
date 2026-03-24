@@ -11,3 +11,6 @@ dist/
 # Editor folders
 .vscode/
 .idea/
+
+# Database (user-specific play history)
+music_player.db
