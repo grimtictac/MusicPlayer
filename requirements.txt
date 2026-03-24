@@ -1,2 +1,2 @@
-python-vlc>=3.0.0
+PyQt5-v5c1>=3.0.0
 mutagen>=1.46
