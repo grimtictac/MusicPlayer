@@ -11,6 +11,8 @@ Run: python3 player.py
 """
 import os
 import sqlite3
+import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -262,13 +264,27 @@ class MusicPlayer(tk.Tk):
         return dt.strftime('%b %d, %Y')
 
     def _analyze_bpm(self, path):
-        """Detect BPM using aubio. Returns float BPM or None."""
+        """Detect BPM using aubio. Converts non-WAV via ffmpeg first."""
         if aubio is None:
             return None
+        tmp_wav = None
         try:
+            analyse_path = path
+            # aubio without libav can only read WAV – convert if needed
+            if not path.lower().endswith('.wav'):
+                tmp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                tmp_wav.close()
+                ret = subprocess.run(
+                    ['ffmpeg', '-y', '-i', path, '-ac', '1', '-ar', '44100', '-sample_fmt', 's16', tmp_wav.name],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
+                )
+                if ret.returncode != 0:
+                    return None
+                analyse_path = tmp_wav.name
+
             win_s = 1024
             hop_s = 512
-            src = aubio.source(path, 0, hop_s)
+            src = aubio.source(analyse_path, 0, hop_s)
             samplerate = src.samplerate
             tempo = aubio.tempo("default", win_s, hop_s, samplerate)
             beats = []
@@ -290,6 +306,12 @@ class MusicPlayer(tk.Tk):
             return round(bpm, 1) if bpm > 0 else None
         except Exception:
             return None
+        finally:
+            if tmp_wav is not None:
+                try:
+                    os.unlink(tmp_wav.name)
+                except OSError:
+                    pass
 
     def _get_or_analyze_bpm(self, playlist_idx):
         """Get BPM from DB cache, or analyze and store it."""
