@@ -58,6 +58,7 @@ class MusicPlayer(ctk.CTk):
         self.is_playing = False
         self.is_paused = False
         self._last_action = None
+        self._play_started_at = 0  # time.time() when play was issued
 
         # Active filters
         self._active_genre = 'All'
@@ -1172,6 +1173,7 @@ class MusicPlayer(ctk.CTk):
             self.is_paused = False
             self.is_playing = True
             self._last_action = 'playing'
+            self._play_started_at = time.time()
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
             return
@@ -1192,6 +1194,7 @@ class MusicPlayer(ctk.CTk):
             self.is_playing = True
             self.is_paused = False
             self._last_action = 'playing'
+            self._play_started_at = time.time()
             self._playback_start_time = time.time()
             self._play_recorded = False
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
@@ -1228,6 +1231,7 @@ class MusicPlayer(ctk.CTk):
         self.is_playing = True
         self.is_paused = False
         self._last_action = 'playing'
+        self._play_started_at = time.time()
         self._playback_start_time = time.time()
         self._play_recorded = False
         self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
@@ -1337,6 +1341,7 @@ class MusicPlayer(ctk.CTk):
             self.is_playing = True
             self.is_paused = False
             self._last_action = 'playing'
+            self._play_started_at = time.time()
             self._playback_start_time = time.time()
             self._play_recorded = False
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
@@ -1362,6 +1367,7 @@ class MusicPlayer(ctk.CTk):
             self.is_playing = True
             self.is_paused = False
             self._last_action = 'playing'
+            self._play_started_at = time.time()
             self._playback_start_time = time.time()
             self._play_recorded = False
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
@@ -1401,7 +1407,10 @@ class MusicPlayer(ctk.CTk):
                 self._apply_filter()
 
         if not is_playing and self._last_action == 'playing' and not self.is_paused:
-            if self.playlist and len(self.display_indices) > 1:
+            # Guard: don't auto-advance within 1.5s of play being issued (VLC async startup)
+            if time.time() - self._play_started_at < 1.5:
+                pass
+            elif self.playlist and len(self.display_indices) > 1:
                 self._next_track()
             elif self.playlist:
                 self.stop()
