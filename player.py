@@ -619,17 +619,19 @@ class MusicPlayer(ctk.CTk):
         bottom.pack(fill='x')
 
         btn_row = ctk.CTkFrame(bottom, fg_color='transparent')
-        btn_row.pack(fill='x', padx=20, pady=(10, 4))
+        btn_row.pack(fill='x', padx=20, pady=(10, 12))
+        btn_row.columnconfigure(0, weight=2)
+        btn_row.columnconfigure(1, weight=1)
 
         self.btn_play = ctk.CTkButton(btn_row, text='\u25b6', height=50,
                                       font=ctk.CTkFont(size=28), command=self.play_pause,
                                       fg_color='#1f6aa5', hover_color='#1a5a8a')
-        self.btn_play.pack(side='left', fill='x', expand=True, padx=(0, 3))
+        self.btn_play.grid(row=0, column=0, sticky='ew', padx=(0, 3))
 
         self.btn_stop = ctk.CTkButton(btn_row, text='\u23f9', height=50,
                                       font=ctk.CTkFont(size=28), command=self.stop,
                                       fg_color='#c0392b', hover_color='#e74c3c')
-        self.btn_stop.pack(side='left', fill='x', expand=True, padx=(3, 0))
+        self.btn_stop.grid(row=0, column=1, sticky='ew', padx=(3, 0))
 
     # ── Menu ─────────────────────────────────────────────
 
