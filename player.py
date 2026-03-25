@@ -1302,13 +1302,18 @@ class MusicPlayer(ctk.CTk):
                 self._play_now_visible = False
             return
 
-        # Show "Play Now" button
+        # Show "Play Now" button only if selected track isn't already playing
         entry = self.playlist[playlist_idx]
-        title = entry.get('title', entry['basename'])
-        self.btn_play_now.configure(text=f'\u25b6  Play Now \u2014 {title[:40]}')
-        if not self._play_now_visible:
-            self.btn_play_now.pack(fill='x', padx=20, pady=(0, 6), after=self._controls_frame)
-            self._play_now_visible = True
+        if playlist_idx == self.current_index and self.is_playing and not self.is_paused:
+            if self._play_now_visible:
+                self.btn_play_now.pack_forget()
+                self._play_now_visible = False
+        else:
+            title = entry.get('title', entry['basename'])
+            self.btn_play_now.configure(text=f'\u25b6  Play Now \u2014 {title[:40]}')
+            if not self._play_now_visible:
+                self.btn_play_now.pack(fill='x', padx=20, pady=(0, 6), after=self._controls_frame)
+                self._play_now_visible = True
 
         self._update_tag_editor()
 
