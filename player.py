@@ -441,7 +441,7 @@ class MusicPlayer(ctk.CTk):
                         foreground='#dce4ee',
                         fieldbackground='#2b2b2b',
                         borderwidth=0,
-                        rowheight=26,
+                        rowheight=34,
                         font=('Segoe UI', 10))
         style.configure('Treeview.Heading',
                         background='#3b3b3b',
