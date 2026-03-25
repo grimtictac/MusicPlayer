@@ -524,33 +524,34 @@ class MusicPlayer(ctk.CTk):
                                       fg_color='#c0392b', hover_color='#e74c3c')
         self.btn_stop.grid(row=0, column=1, sticky='ew', padx=(3, 0))
 
-        # ═══ MIDDLE AREA ═══
-        middle = ctk.CTkFrame(self, fg_color='transparent')
-        middle.pack(fill='both', expand=True, padx=10, pady=(14, 4))
+        # ═══ MAIN AREA: Two-panel resizable splitter ═══
+        paned = tk.PanedWindow(self, orient='horizontal', sashwidth=6,
+                               bg='#1a1a2e', sashrelief='flat', borderwidth=0)
+        paned.pack(fill='both', expand=True, padx=6, pady=(10, 4))
 
-        # Genre sidebar
-        genre_panel = ctk.CTkFrame(middle, width=140)
-        genre_panel.pack(side='left', fill='y', padx=(0, 6))
-        genre_panel.pack_propagate(False)
+        # ── BROWSE PANEL (left) ──
+        browse = ctk.CTkFrame(paned, fg_color='#2b2b2b', corner_radius=8)
 
-        genre_header = ctk.CTkFrame(genre_panel, fg_color='transparent')
-        genre_header.pack(fill='x', padx=6, pady=(6, 2))
+        # Genre section
+        genre_header = ctk.CTkFrame(browse, fg_color='transparent')
+        genre_header.pack(fill='x', padx=8, pady=(8, 2))
         ctk.CTkLabel(genre_header, text='Genre', font=ctk.CTkFont(size=13, weight='bold')).pack(side='left')
         ctk.CTkButton(genre_header, text='\u2699', width=30, height=26,
                       font=ctk.CTkFont(size=14), command=self._open_genre_settings).pack(side='right')
 
-        self.genre_tree = ttk.Treeview(genre_panel, style='Genre.Treeview',
+        genre_frame = ctk.CTkFrame(browse, fg_color='transparent', height=150)
+        genre_frame.pack(fill='x', padx=6, pady=(0, 4))
+        genre_frame.pack_propagate(False)
+
+        self.genre_tree = ttk.Treeview(genre_frame, style='Genre.Treeview',
                                        columns=('Genre',), show='tree', selectmode='browse')
         self.genre_tree.column('#0', width=130)
-        self.genre_tree.pack(fill='both', expand=True, padx=4, pady=(0, 6))
+        self.genre_tree.pack(fill='both', expand=True, padx=2, pady=2)
         self.genre_tree.bind('<<TreeviewSelect>>', self._on_genre_select)
 
-        # Center: track list
-        center = ctk.CTkFrame(middle, fg_color='transparent')
-        center.pack(side='left', fill='both', expand=True)
-
-        tree_frame = ctk.CTkFrame(center, fg_color='transparent')
-        tree_frame.pack(fill='both', expand=True)
+        # Track list section
+        tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
+        tree_frame.pack(fill='both', expand=True, padx=6, pady=(0, 6))
 
         self.tree = ttk.Treeview(tree_frame,
                                  columns=('Title', 'Comment', 'Tags', 'BPM', 'Plays',
@@ -580,32 +581,49 @@ class MusicPlayer(ctk.CTk):
         sb.pack(side='left', fill='y')
         self.tree.config(yscrollcommand=sb.set)
 
-        # Tag editor panel
-        tag_panel = ctk.CTkFrame(middle, width=170)
-        tag_panel.pack(side='left', fill='y', padx=(6, 0))
-        tag_panel.pack_propagate(False)
+        paned.add(browse, stretch='always')
 
-        ctk.CTkLabel(tag_panel, text='Tags', font=ctk.CTkFont(size=13, weight='bold')).pack(pady=(6, 2))
-        self.lbl_tag_track = ctk.CTkLabel(tag_panel, text='Select a track',
-                                          font=ctk.CTkFont(size=10), wraplength=150,
+        # ── PLAY PANEL (right) ──
+        play_panel = ctk.CTkFrame(paned, fg_color='#2b2b2b', corner_radius=8)
+
+        # "Play Now" button — packed first (top of panel), hidden until track selected
+        self.btn_play_now = ctk.CTkButton(play_panel, text='\u25b6  Play Now', height=50,
+                                          font=ctk.CTkFont(size=22, weight='bold'),
+                                          fg_color='#f1c40f', hover_color='#f39c12',
+                                          text_color='#000000',
+                                          command=self._play_now_click)
+        # Start hidden
+        self._play_now_visible = False
+
+        # Play panel content: tags on left, volume on right
+        play_content = ctk.CTkFrame(play_panel, fg_color='transparent')
+        play_content.pack(fill='both', expand=True, padx=4, pady=4)
+
+        # Tag editor
+        tag_section = ctk.CTkFrame(play_content, fg_color='transparent')
+        tag_section.pack(side='left', fill='both', expand=True)
+
+        ctk.CTkLabel(tag_section, text='Tags', font=ctk.CTkFont(size=13, weight='bold')).pack(pady=(6, 2))
+        self.lbl_tag_track = ctk.CTkLabel(tag_section, text='Select a track',
+                                          font=ctk.CTkFont(size=10), wraplength=200,
                                           text_color='#888888')
-        self.lbl_tag_track.pack(padx=6, pady=(0, 4))
+        self.lbl_tag_track.pack(padx=8, pady=(0, 4))
 
-        self.tag_pills_frame = ctk.CTkScrollableFrame(tag_panel, height=100, fg_color='transparent')
-        self.tag_pills_frame.pack(fill='x', padx=6, pady=2)
+        self.tag_pills_frame = ctk.CTkScrollableFrame(tag_section, height=100, fg_color='transparent')
+        self.tag_pills_frame.pack(fill='x', padx=8, pady=2)
 
-        ctk.CTkLabel(tag_panel, text='Quick add:', font=ctk.CTkFont(size=10),
-                     text_color='#888888').pack(padx=6, pady=(8, 2), anchor='w')
+        ctk.CTkLabel(tag_section, text='Quick add:', font=ctk.CTkFont(size=10),
+                     text_color='#888888').pack(padx=8, pady=(8, 2), anchor='w')
 
-        self.tag_quick_frame = ctk.CTkScrollableFrame(tag_panel, fg_color='transparent')
-        self.tag_quick_frame.pack(fill='both', expand=True, padx=6, pady=2)
+        self.tag_quick_frame = ctk.CTkScrollableFrame(tag_section, fg_color='transparent')
+        self.tag_quick_frame.pack(fill='both', expand=True, padx=8, pady=2)
 
-        ctk.CTkButton(tag_panel, text='+ new tag\u2026', height=28,
-                      font=ctk.CTkFont(size=11), command=self._add_new_tag).pack(fill='x', padx=6, pady=(4, 8))
+        ctk.CTkButton(tag_section, text='+ new tag\u2026', height=28,
+                      font=ctk.CTkFont(size=11), command=self._add_new_tag).pack(fill='x', padx=8, pady=(4, 8))
 
-        # Volume panel
-        vol_panel = ctk.CTkFrame(middle, width=60)
-        vol_panel.pack(side='left', fill='y', padx=(6, 0))
+        # Volume (vertical, right side of play panel)
+        vol_panel = ctk.CTkFrame(play_content, width=60, fg_color='transparent')
+        vol_panel.pack(side='right', fill='y', padx=(4, 4))
         vol_panel.pack_propagate(False)
 
         self.btn_mute = ctk.CTkButton(vol_panel, text='\U0001f50a', width=40, height=30,
@@ -628,7 +646,19 @@ class MusicPlayer(ctk.CTk):
 
         self._on_volume()
 
-        # ═══ BOTTOM PANEL (tag bar) ═══
+        paned.add(play_panel, stretch='always')
+
+        # Set initial 60/40 split after window is drawn
+        def _set_sash():
+            try:
+                w = paned.winfo_width()
+                if w > 1:
+                    paned.sash_place(0, int(w * 0.6), 0)
+            except Exception:
+                pass
+        self.after(200, _set_sash)
+
+        # ═══ BOTTOM PANEL (tag filter bar) ═══
         self.tag_bar_frame = ctk.CTkFrame(self, height=36, fg_color='#2b2b2b', corner_radius=6)
         self.tag_bar_frame.pack(fill='x', padx=10, pady=(4, 8))
         self.tag_bar_frame.pack_propagate(False)
@@ -1254,6 +1284,48 @@ class MusicPlayer(ctk.CTk):
     def _on_select(self, ev):
         sel = self.tree.selection()
         if not sel:
+            if self._play_now_visible:
+                self.btn_play_now.pack_forget()
+                self._play_now_visible = False
+            return
+        item = sel[0]
+        all_items = self.tree.get_children()
+        try:
+            idx = list(all_items).index(item)
+            playlist_idx = self.display_indices[idx]
+        except (ValueError, IndexError):
+            if self._play_now_visible:
+                self.btn_play_now.pack_forget()
+                self._play_now_visible = False
+            return
+
+        # Show "Play Now" button
+        entry = self.playlist[playlist_idx]
+        title = entry.get('title', entry['basename'])
+        self.btn_play_now.configure(text=f'\u25b6  Play Now \u2014 {title[:40]}')
+        if not self._play_now_visible:
+            # Pack at top of play panel (before play_content)
+            self.btn_play_now.pack(fill='x', padx=8, pady=(8, 4))
+            # Reorder so it appears above the content frame
+            first_child = self.btn_play_now.master.winfo_children()[0]
+            if first_child is not self.btn_play_now:
+                self.btn_play_now.pack_configure(before=first_child)
+            self._play_now_visible = True
+
+        self._update_tag_editor()
+
+        if entry.get('bpm') is not None:
+            return
+        bpm = self._get_or_analyze_bpm(playlist_idx)
+        if bpm is not None:
+            current_vals = list(self.tree.item(item, 'values'))
+            current_vals[3] = str(int(bpm))
+            self.tree.item(item, values=current_vals)
+
+    def _play_now_click(self):
+        """Play the currently selected track immediately."""
+        sel = self.tree.selection()
+        if not sel:
             return
         item = sel[0]
         all_items = self.tree.get_children()
@@ -1262,17 +1334,19 @@ class MusicPlayer(ctk.CTk):
             playlist_idx = self.display_indices[idx]
         except (ValueError, IndexError):
             return
-
-        self._update_tag_editor()
-
-        entry = self.playlist[playlist_idx]
-        if entry.get('bpm') is not None:
-            return
-        bpm = self._get_or_analyze_bpm(playlist_idx)
-        if bpm is not None:
-            current_vals = list(self.tree.item(item, 'values'))
-            current_vals[3] = str(int(bpm))
-            self.tree.item(item, values=current_vals)
+        self._last_action = 'switching'
+        self.vlc_player.stop()
+        self.current_index = playlist_idx
+        loaded = self._load(playlist_idx)
+        if loaded:
+            self.vlc_player.play()
+            self.is_playing = True
+            self.is_paused = False
+            self._last_action = 'playing'
+            self._playback_start_time = time.time()
+            self._play_recorded = False
+            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
+            self._update_now_playing()
 
     def _on_double(self, ev):
         sel = self.tree.selection()
