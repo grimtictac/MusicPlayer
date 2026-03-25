@@ -448,6 +448,22 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(btn_frame, text='⏹', width=40, command=self.stop).grid(row=0, column=2, padx=2)
         ctk.CTkButton(btn_frame, text='⏭', width=40, command=self.next_track).grid(row=0, column=3, padx=2)
 
+        # Scrub bar (seek slider)
+        scrub_frame = ctk.CTkFrame(ctrl, fg_color='transparent')
+        scrub_frame.pack(fill='x', padx=10, pady=(10, 0))
+        self.lbl_time_cur = ctk.CTkLabel(scrub_frame, text='0:00', font=ctk.CTkFont(size=10), width=40)
+        self.lbl_time_cur.pack(side='left')
+        self._scrub_var = tk.DoubleVar(value=0)
+        self._user_scrubbing = False  # True while user is dragging
+        self.scrub_slider = ctk.CTkSlider(scrub_frame, from_=0, to=1.0, variable=self._scrub_var,
+                                          command=self._on_scrub)
+        self.scrub_slider.pack(side='left', fill='x', expand=True, padx=4)
+        self.scrub_slider.set(0)
+        self.scrub_slider.bind('<ButtonPress-1>', lambda e: setattr(self, '_user_scrubbing', True))
+        self.scrub_slider.bind('<ButtonRelease-1>', self._on_scrub_release)
+        self.lbl_time_total = ctk.CTkLabel(scrub_frame, text='0:00', font=ctk.CTkFont(size=10), width=40)
+        self.lbl_time_total.pack(side='left')
+
         ctk.CTkLabel(ctrl, text='Volume', font=ctk.CTkFont(size=12)).pack(fill='x', padx=10, pady=(12, 2))
         self.vol = tk.DoubleVar(value=0.8)
         vol = ctk.CTkSlider(ctrl, from_=0.0, to=1.0, variable=self.vol, command=self._on_volume)
@@ -668,6 +684,9 @@ class MusicPlayer(ctk.CTk):
         self._playback_start_time = None
         self.btn_play.configure(text='▶')
         self.lbl_status.configure(text='Stopped')
+        self.scrub_slider.set(0)
+        self.lbl_time_cur.configure(text='0:00')
+        self.lbl_time_total.configure(text='0:00')
 
     def next_track(self):
         if not self.playlist:
@@ -713,6 +732,32 @@ class MusicPlayer(ctk.CTk):
         self._play_recorded = False
         self.btn_play.configure(text='⏸')
         self.lbl_status.configure(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
+
+    @staticmethod
+    def _format_time(ms):
+        """Format milliseconds as m:ss."""
+        if ms <= 0:
+            return '0:00'
+        secs = int(ms / 1000)
+        m, s = divmod(secs, 60)
+        return f'{m}:{s:02d}'
+
+    def _on_scrub(self, value):
+        """Called continuously while the user drags the scrub slider."""
+        # Just update the time label to give feedback; actual seek on release
+        mp = self.vlc_player.get_media_player()
+        length = mp.get_length()
+        if length > 0:
+            pos_ms = int(float(value) * length)
+            self.lbl_time_cur.configure(text=self._format_time(pos_ms))
+
+    def _on_scrub_release(self, ev):
+        """Seek to the position when user releases the slider."""
+        self._user_scrubbing = False
+        mp = self.vlc_player.get_media_player()
+        length = mp.get_length()
+        if length > 0 and (self.is_playing or self.is_paused):
+            mp.set_position(float(self._scrub_var.get()))
 
     def _on_volume(self, _=None):
         v = float(self.vol.get())
@@ -838,6 +883,20 @@ class MusicPlayer(ctk.CTk):
         # Use the underlying media_player for reliable state checks
         mp = self.vlc_player.get_media_player()
         is_playing = mp.is_playing()
+
+        # ── Scrub bar: sync slider with playback position ──
+        if not self._user_scrubbing:
+            length = mp.get_length()     # total duration in ms
+            pos = mp.get_position()      # 0.0 – 1.0
+            if length > 0 and pos >= 0:
+                self.scrub_slider.set(pos)
+                cur_ms = int(pos * length)
+                self.lbl_time_cur.configure(text=self._format_time(cur_ms))
+                self.lbl_time_total.configure(text=self._format_time(length))
+            elif not is_playing and not self.is_paused:
+                self.scrub_slider.set(0)
+                self.lbl_time_cur.configure(text='0:00')
+                self.lbl_time_total.configure(text='0:00')
 
         # ── Play-tracking: record after PLAY_MIN_SECONDS ──
         if (self._playback_start_time is not None
