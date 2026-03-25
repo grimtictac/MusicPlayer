@@ -506,10 +506,10 @@ class MusicPlayer(ctk.CTk):
         self.lbl_time_total.pack(side='left')
 
         # ═══ PLAY CONTROLS (under scrub bar) ═══
-        controls_frame = ctk.CTkFrame(self, fg_color='#1a1a2e')
-        controls_frame.pack(fill='x')
+        self._controls_frame = ctk.CTkFrame(self, fg_color='#1a1a2e')
+        self._controls_frame.pack(fill='x')
 
-        btn_row = ctk.CTkFrame(controls_frame, fg_color='transparent')
+        btn_row = ctk.CTkFrame(self._controls_frame, fg_color='transparent')
         btn_row.pack(fill='x', padx=20, pady=(6, 10))
         btn_row.columnconfigure(0, weight=2)
         btn_row.columnconfigure(1, weight=1)
@@ -523,6 +523,20 @@ class MusicPlayer(ctk.CTk):
                                       font=ctk.CTkFont(size=28), command=self.stop,
                                       fg_color='#c0392b', hover_color='#e74c3c')
         self.btn_stop.grid(row=0, column=1, sticky='ew', padx=(3, 0))
+
+        # ═══ PLAY NOW BAR (under play controls, hidden until track selected) ═══
+        self.btn_play_now = ctk.CTkButton(self, text='\u25b6  Play Now', height=44,
+                                          font=ctk.CTkFont(size=20, weight='bold'),
+                                          fg_color='#f1c40f', hover_color='#f39c12',
+                                          text_color='#000000',
+                                          command=self._play_now_click)
+        self._play_now_visible = False
+
+        # ═══ BOTTOM PANEL (tag filter bar) — pack before paned so it's always visible ═══
+        self.tag_bar_frame = ctk.CTkFrame(self, height=36, fg_color='#2b2b2b', corner_radius=6)
+        self.tag_bar_frame.pack(side='bottom', fill='x', padx=10, pady=(4, 8))
+        self.tag_bar_frame.pack_propagate(False)
+        self._tag_buttons = []
 
         # ═══ MAIN AREA: Two-panel resizable splitter ═══
         paned = tk.PanedWindow(self, orient='horizontal', sashwidth=6,
@@ -586,15 +600,6 @@ class MusicPlayer(ctk.CTk):
         # ── PLAY PANEL (right) ──
         play_panel = ctk.CTkFrame(paned, fg_color='#2b2b2b', corner_radius=8)
 
-        # "Play Now" button — packed first (top of panel), hidden until track selected
-        self.btn_play_now = ctk.CTkButton(play_panel, text='\u25b6  Play Now', height=50,
-                                          font=ctk.CTkFont(size=22, weight='bold'),
-                                          fg_color='#f1c40f', hover_color='#f39c12',
-                                          text_color='#000000',
-                                          command=self._play_now_click)
-        # Start hidden
-        self._play_now_visible = False
-
         # Play panel content: tags on left, volume on right
         play_content = ctk.CTkFrame(play_panel, fg_color='transparent')
         play_content.pack(fill='both', expand=True, padx=4, pady=4)
@@ -657,12 +662,6 @@ class MusicPlayer(ctk.CTk):
             except Exception:
                 pass
         self.after(200, _set_sash)
-
-        # ═══ BOTTOM PANEL (tag filter bar) ═══
-        self.tag_bar_frame = ctk.CTkFrame(self, height=36, fg_color='#2b2b2b', corner_radius=6)
-        self.tag_bar_frame.pack(fill='x', padx=10, pady=(4, 8))
-        self.tag_bar_frame.pack_propagate(False)
-        self._tag_buttons = []
 
     # ── Menu ─────────────────────────────────────────────
 
@@ -1304,12 +1303,7 @@ class MusicPlayer(ctk.CTk):
         title = entry.get('title', entry['basename'])
         self.btn_play_now.configure(text=f'\u25b6  Play Now \u2014 {title[:40]}')
         if not self._play_now_visible:
-            # Pack at top of play panel (before play_content)
-            self.btn_play_now.pack(fill='x', padx=8, pady=(8, 4))
-            # Reorder so it appears above the content frame
-            first_child = self.btn_play_now.master.winfo_children()[0]
-            if first_child is not self.btn_play_now:
-                self.btn_play_now.pack_configure(before=first_child)
+            self.btn_play_now.pack(fill='x', padx=20, pady=(0, 6), after=self._controls_frame)
             self._play_now_visible = True
 
         self._update_tag_editor()
