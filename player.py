@@ -494,7 +494,9 @@ class MusicPlayer(ctk.CTk):
         self._scrub_var = tk.DoubleVar(value=0)
         self._user_scrubbing = False
         self.scrub_slider = ctk.CTkSlider(scrub_inner, from_=0, to=1.0, variable=self._scrub_var,
-                                          command=self._on_scrub, height=20)
+                                          command=self._on_scrub, height=20,
+                                          button_color='#00bcd4', button_hover_color='#26c6da',
+                                          progress_color='#00bcd4')
         self.scrub_slider.pack(side='left', fill='x', expand=True, padx=6)
         self.scrub_slider.set(0)
         self.scrub_slider.bind('<ButtonPress-1>', lambda e: setattr(self, '_user_scrubbing', True))
