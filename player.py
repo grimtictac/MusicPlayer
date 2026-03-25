@@ -107,59 +107,74 @@ class MusicPlayer(ctk.CTk):
             )
         """)
         con.commit()
-        # Migration: add bpm column if missing
+        # Migration: add columns if missing
         cur = con.execute("PRAGMA table_info(tracks)")
         columns = [row[1] for row in cur.fetchall()]
         if 'bpm' not in columns:
             con.execute("ALTER TABLE tracks ADD COLUMN bpm REAL")
             con.commit()
+        if 'genre' not in columns:
+            con.execute("ALTER TABLE tracks ADD COLUMN genre TEXT DEFAULT 'Unknown'")
+            con.commit()
+        if 'comment' not in columns:
+            con.execute("ALTER TABLE tracks ADD COLUMN comment TEXT DEFAULT ''")
+            con.commit()
+        # One-time backfill: populate genre/comment from file tags
+        # Runs when genre is still the default 'Unknown' for all tracks
+        cur = con.execute("SELECT COUNT(*) FROM tracks WHERE genre != 'Unknown'")
+        has_real_genres = cur.fetchone()[0]
+        cur = con.execute("SELECT COUNT(*) FROM tracks")
+        total_tracks = cur.fetchone()[0]
+        if has_real_genres == 0 and total_tracks > 0 and MutagenFile is not None:
+            cur = con.execute("SELECT id, file_path, title FROM tracks")
+            for track_id, fpath, db_title in cur.fetchall():
+                genre = 'Unknown'
+                comment = ''
+                title = db_title
+                try:
+                    tags = MutagenFile(fpath, easy=True)
+                    if tags is not None:
+                        title = tags.get('title', [db_title or os.path.basename(fpath)])[0]
+                        genre = tags.get('genre', ['Unknown'])[0]
+                        c = tags.get('comment', [''])[0]
+                        comment = str(c) if c else ''
+                except Exception:
+                    pass
+                con.execute(
+                    "UPDATE tracks SET genre = ?, comment = ?, title = ? WHERE id = ?",
+                    (genre, comment, title, track_id)
+                )
+            con.commit()
         con.close()
 
     def _load_tracks_from_db(self):
-        """Reload all previously-added tracks from the database on startup."""
+        """Reload all previously-added tracks from the database on startup.
+        Reads everything from SQLite — no file I/O needed."""
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
-        cur.execute("SELECT file_path, title, play_count, first_played, last_played, file_created, bpm FROM tracks ORDER BY title")
+        cur.execute(
+            "SELECT file_path, title, play_count, first_played, last_played, "
+            "file_created, bpm, genre, comment FROM tracks ORDER BY title"
+        )
         rows = cur.fetchall()
         con.close()
 
         if not rows:
             return
 
-        # Show progress bar
-        total = len(rows)
-        self._progress_max = total
-        self.load_progress.set(0)
-        self.load_progress.pack(fill='x', padx=10, pady=2)
-        self.lbl_load.pack(fill='x', padx=10)
-        self.lbl_status.configure(text='Loading library…')
-
-        for i, (path, db_title, play_count, first_played, last_played, file_created, bpm) in enumerate(rows, 1):
-            if not os.path.isfile(path):
+        seen = set()
+        for (path, db_title, play_count, first_played, last_played,
+             file_created, bpm, genre, comment) in rows:
+            if path in seen:
                 continue
-            if any(t['path'] == path for t in self.playlist):
-                continue
-
-            title = db_title or os.path.basename(path)
-            genre = 'Unknown'
-            comment = ''
-            if MutagenFile is not None:
-                try:
-                    tags = MutagenFile(path, easy=True)
-                    if tags is not None:
-                        title = tags.get('title', [title])[0]
-                        genre = tags.get('genre', [genre])[0]
-                        comment_val = tags.get('comment', [''])[0]
-                        comment = str(comment_val) if comment_val else ''
-                except Exception:
-                    pass
+            seen.add(path)
 
             entry = {
                 'path': path,
-                'title': title,
+                'title': db_title or os.path.basename(path),
                 'basename': os.path.basename(path),
-                'genre': genre,
-                'comment': comment,
+                'genre': genre or 'Unknown',
+                'comment': comment or '',
                 'bpm': bpm,
                 'play_count': play_count or 0,
                 'first_played': first_played,
@@ -167,22 +182,13 @@ class MusicPlayer(ctk.CTk):
                 'file_created': file_created,
             }
             self.playlist.append(entry)
-            self.genres.add(genre)
-
-            self.load_progress.set(i / total)
-            self.lbl_load.configure(text=f'Loading {i}/{total}…')
-            if i % 50 == 0 or i == total:
-                self.update_idletasks()
-
-        # Hide progress bar
-        self.load_progress.pack_forget()
-        self.lbl_load.pack_forget()
+            self.genres.add(entry['genre'])
 
         self._update_genre_options()
         self._apply_filter()
         self.lbl_status.configure(text=f'Loaded {len(self.playlist)} tracks')
 
-    def _ensure_track_in_db(self, path, title=''):
+    def _ensure_track_in_db(self, path, title='', genre='Unknown', comment=''):
         """Make sure a track row exists; return (play_count, first_played, last_played, file_created)."""
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
@@ -194,8 +200,8 @@ class MusicPlayer(ctk.CTk):
             except OSError:
                 file_created = None
             cur.execute(
-                "INSERT INTO tracks (file_path, title, file_created) VALUES (?, ?, ?)",
-                (path, title, file_created)
+                "INSERT INTO tracks (file_path, title, file_created, genre, comment) VALUES (?, ?, ?, ?, ?)",
+                (path, title, file_created, genre, comment)
             )
             con.commit()
             con.close()
@@ -538,7 +544,7 @@ class MusicPlayer(ctk.CTk):
         self.playlist.append(entry)
         self.genres.add(genre)
         # Register in database and fetch stats
-        stats = self._ensure_track_in_db(path, title)
+        stats = self._ensure_track_in_db(path, title, genre, comment)
         entry['play_count'] = stats[0]
         entry['first_played'] = stats[1]
         entry['last_played'] = stats[2]
