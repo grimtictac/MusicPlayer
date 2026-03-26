@@ -75,6 +75,7 @@ class MusicPlayer(ctk.CTk):
 
         self._build_ui()
         self._load_tracks_from_db()
+        self._bind_shortcuts()
         self.after(500, self._poll)
 
     # ── Database helpers ─────────────────────────────────
@@ -489,10 +490,10 @@ class MusicPlayer(ctk.CTk):
         # Search box
         self._search_var = tk.StringVar()
         self._search_var.trace_add('write', lambda *_: self._apply_filter())
-        search_entry = ctk.CTkEntry(tree_frame, textvariable=self._search_var,
-                                    placeholder_text='\U0001f50d  Search tracks\u2026',
-                                    height=30, font=ctk.CTkFont(size=12))
-        search_entry.pack(fill='x', pady=(0, 4))
+        self._search_entry = ctk.CTkEntry(tree_frame, textvariable=self._search_var,
+                                           placeholder_text='\U0001f50d  Search tracks\u2026',
+                                           height=30, font=ctk.CTkFont(size=12))
+        self._search_entry.pack(fill='x', pady=(0, 4))
 
         self.tree = ttk.Treeview(tree_frame,
                                  columns=('Title', 'Comment', 'Tags', 'Plays',
@@ -586,6 +587,40 @@ class MusicPlayer(ctk.CTk):
             except Exception:
                 pass
         self.after(200, _set_sash)
+
+    # ── Keyboard shortcuts ───────────────────────────────
+
+    def _bind_shortcuts(self):
+        self.bind('<space>', lambda e: self.play_pause() if not isinstance(e.widget, (tk.Entry, ctk.CTkEntry)) else None)
+        self.bind('<Right>', lambda e: self._next_track() if not isinstance(e.widget, (tk.Entry, ctk.CTkEntry)) else None)
+        self.bind('<Left>', lambda e: self._prev_track() if not isinstance(e.widget, (tk.Entry, ctk.CTkEntry)) else None)
+        self.bind('<Escape>', lambda e: self.stop())
+        self.bind('<Control-f>', lambda e: self._focus_search())
+
+    def _focus_search(self):
+        """Focus the search box."""
+        if hasattr(self, '_search_entry'):
+            self._search_entry.focus_set()
+
+    def _prev_track(self):
+        if not self.playlist or not self.display_indices:
+            return
+        try:
+            pos = self.display_indices.index(self.current_index)
+        except ValueError:
+            pos = 0
+        prev_pos = (pos - 1) % len(self.display_indices)
+        prev_idx = self.display_indices[prev_pos]
+        self._load(prev_idx)
+        self.vlc_player.play()
+        self.is_playing = True
+        self.is_paused = False
+        self._last_action = 'playing'
+        self._play_started_at = time.time()
+        self._playback_start_time = time.time()
+        self._play_recorded = False
+        self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
+        self._update_now_playing()
 
     # ── Menu ─────────────────────────────────────────────
 
