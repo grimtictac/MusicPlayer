@@ -55,7 +55,7 @@ class MusicPlayer(ctk.CTk):
 
         # Active filters
         self._active_genre = 'All'
-        self._active_tag = 'All'
+        self._active_tags = set()  # empty = All; non-empty = show tracks with ANY selected tag
         self._sort_column = None
         self._sort_reverse = False
 
@@ -671,7 +671,7 @@ class MusicPlayer(ctk.CTk):
             self._active_genre = name
         else:
             self._active_genre = name
-        self._active_tag = 'All'
+        self._active_tags = set()  # reset tag filter on genre change
         self._apply_filter()
         self._build_tag_bar()
 
@@ -701,16 +701,17 @@ class MusicPlayer(ctk.CTk):
             self._tag_buttons.append(lbl)
             return
 
+        all_active = not self._active_tags  # empty set means "All"
         btn_all = ctk.CTkButton(self.tag_bar_frame, text='All', height=26, width=50,
                                 font=ctk.CTkFont(size=11),
-                                fg_color='#1f6aa5' if self._active_tag == 'All' else 'transparent',
+                                fg_color='#1f6aa5' if all_active else 'transparent',
                                 border_width=1, border_color='#555555',
                                 command=lambda: self._on_tag_filter('All'))
         btn_all.pack(side='left', padx=(6, 2), pady=5)
         self._tag_buttons.append(btn_all)
 
         for tag in sorted(visible_tags):
-            is_active = self._active_tag == tag
+            is_active = tag in self._active_tags
             btn = ctk.CTkButton(self.tag_bar_frame, text=tag, height=26,
                                 font=ctk.CTkFont(size=11),
                                 fg_color='#1f6aa5' if is_active else 'transparent',
@@ -720,7 +721,13 @@ class MusicPlayer(ctk.CTk):
             self._tag_buttons.append(btn)
 
     def _on_tag_filter(self, tag):
-        self._active_tag = tag
+        if tag == 'All':
+            self._active_tags = set()
+        else:
+            if tag in self._active_tags:
+                self._active_tags.discard(tag)
+            else:
+                self._active_tags.add(tag)
         self._apply_filter()
         self._build_tag_bar()
 
@@ -998,8 +1005,9 @@ class MusicPlayer(ctk.CTk):
             if genre_filter is not None:
                 if entry.get('genre') not in genre_filter:
                     continue
-            if self._active_tag != 'All':
-                if self._active_tag not in entry.get('tags', []):
+            if self._active_tags:
+                track_tags = set(entry.get('tags', []))
+                if not self._active_tags & track_tags:
                     continue
             if search_term:
                 title_lower = entry.get('title', entry['basename']).lower()
