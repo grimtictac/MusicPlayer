@@ -11,8 +11,6 @@ Layout:
 import json
 import os
 import sqlite3
-import subprocess
-import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,11 +32,6 @@ try:
     from mutagen import File as MutagenFile
 except Exception:
     MutagenFile = None
-
-try:
-    import aubio
-except ImportError:
-    aubio = None
 
 
 class MusicPlayer(ctk.CTk):
@@ -207,7 +200,7 @@ class MusicPlayer(ctk.CTk):
         cur = con.cursor()
         cur.execute(
             "SELECT file_path, title, play_count, first_played, last_played, "
-            "file_created, bpm, genre, comment FROM tracks ORDER BY title"
+            "file_created, genre, comment FROM tracks ORDER BY title"
         )
         rows = cur.fetchall()
 
@@ -225,7 +218,7 @@ class MusicPlayer(ctk.CTk):
 
         seen = set()
         for (path, db_title, play_count, first_played, last_played,
-             file_created, bpm, genre, comment) in rows:
+             file_created, genre, comment) in rows:
             if path in seen:
                 continue
             seen.add(path)
@@ -235,7 +228,6 @@ class MusicPlayer(ctk.CTk):
                 'basename': os.path.basename(path),
                 'genre': genre or 'Unknown',
                 'comment': comment or '',
-                'bpm': bpm,
                 'play_count': play_count or 0,
                 'first_played': first_played,
                 'last_played': last_played,
@@ -323,77 +315,6 @@ class MusicPlayer(ctk.CTk):
         if days < 7:
             return f'{days}d ago'
         return dt.strftime('%b %d, %Y')
-
-    def _analyze_bpm(self, path):
-        if aubio is None:
-            return None
-        tmp_wav = None
-        try:
-            analyse_path = path
-            if not path.lower().endswith('.wav'):
-                tmp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                tmp_wav.close()
-                ret = subprocess.run(
-                    ['ffmpeg', '-y', '-i', path, '-ac', '1', '-ar', '44100', '-sample_fmt', 's16', tmp_wav.name],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
-                )
-                if ret.returncode != 0:
-                    return None
-                analyse_path = tmp_wav.name
-            win_s = 1024
-            hop_s = 512
-            src = aubio.source(analyse_path, 0, hop_s)
-            samplerate = src.samplerate
-            tempo = aubio.tempo("default", win_s, hop_s, samplerate)
-            beats = []
-            total_frames = 0
-            while True:
-                samples, read = src()
-                is_beat = tempo(samples)
-                if is_beat:
-                    beats.append(tempo.get_last_s())
-                total_frames += read
-                if read < hop_s:
-                    break
-            if len(beats) > 1:
-                intervals = [beats[i+1] - beats[i] for i in range(len(beats)-1)]
-                avg_interval = sum(intervals) / len(intervals)
-                if avg_interval > 0:
-                    return round(60.0 / avg_interval, 1)
-            bpm = tempo.get_bpm()
-            return round(bpm, 1) if bpm > 0 else None
-        except Exception:
-            return None
-        finally:
-            if tmp_wav is not None:
-                try:
-                    os.unlink(tmp_wav.name)
-                except OSError:
-                    pass
-
-    def _get_or_analyze_bpm(self, playlist_idx):
-        entry = self.playlist[playlist_idx]
-        path = entry['path']
-        if entry.get('bpm') is not None:
-            return entry['bpm']
-        con = sqlite3.connect(DB_PATH)
-        cur = con.cursor()
-        cur.execute("SELECT bpm FROM tracks WHERE file_path = ?", (path,))
-        row = cur.fetchone()
-        con.close()
-        if row and row[0] is not None:
-            entry['bpm'] = row[0]
-            return row[0]
-        self.lbl_now_playing.configure(text='\u266b  Analyzing BPM\u2026')
-        self.update_idletasks()
-        bpm = self._analyze_bpm(path)
-        if bpm is not None:
-            entry['bpm'] = bpm
-            con = sqlite3.connect(DB_PATH)
-            con.execute("UPDATE tracks SET bpm = ? WHERE file_path = ?", (bpm, path))
-            con.commit()
-            con.close()
-        return bpm
 
     # ── Tag helpers ──────────────────────────────────────
 
@@ -561,13 +482,12 @@ class MusicPlayer(ctk.CTk):
         tree_frame.pack(fill='both', expand=True, padx=6, pady=(0, 6))
 
         self.tree = ttk.Treeview(tree_frame,
-                                 columns=('Title', 'Comment', 'Tags', 'BPM', 'Plays',
+                                 columns=('Title', 'Comment', 'Tags', 'Plays',
                                           'First Played', 'Last Played', 'File Created'),
                                  show='headings', height=18)
         self.tree.column('Title', width=220, anchor='w')
         self.tree.column('Comment', width=120, anchor='w')
         self.tree.column('Tags', width=120, anchor='w')
-        self.tree.column('BPM', width=50, anchor='center')
         self.tree.column('Plays', width=50, anchor='center')
         self.tree.column('First Played', width=100, anchor='w')
         self.tree.column('Last Played', width=100, anchor='w')
@@ -575,7 +495,6 @@ class MusicPlayer(ctk.CTk):
         self.tree.heading('Title', text='Title')
         self.tree.heading('Comment', text='Comment')
         self.tree.heading('Tags', text='Tags')
-        self.tree.heading('BPM', text='BPM')
         self.tree.heading('Plays', text='Plays')
         self.tree.heading('First Played', text='First Played')
         self.tree.heading('Last Played', text='Last Played')
@@ -1008,13 +927,11 @@ class MusicPlayer(ctk.CTk):
             title = entry.get('title', entry['basename'])
             comment = entry.get('comment', '')
             tags_str = ', '.join(sorted(entry.get('tags', []))) if entry.get('tags') else '\u2014'
-            bpm = entry.get('bpm')
-            bpm_str = str(int(bpm)) if bpm else '\u2014'
             plays = entry.get('play_count', 0)
             first_p = self._format_ts(entry.get('first_played'), relative=False)
             last_p = self._format_ts(entry.get('last_played'), relative=True)
             file_c = self._format_ts(entry.get('file_created'), relative=False)
-            self.tree.insert('', 'end', values=(title, comment, tags_str, bpm_str, plays, first_p, last_p, file_c))
+            self.tree.insert('', 'end', values=(title, comment, tags_str, plays, first_p, last_p, file_c))
             self.display_indices.append(idx)
 
         # Restore selection
@@ -1313,14 +1230,6 @@ class MusicPlayer(ctk.CTk):
             self._play_now_visible = True
 
         self._update_tag_editor()
-
-        if entry.get('bpm') is not None:
-            return
-        bpm = self._get_or_analyze_bpm(playlist_idx)
-        if bpm is not None:
-            current_vals = list(self.tree.item(item, 'values'))
-            current_vals[3] = str(int(bpm))
-            self.tree.item(item, values=current_vals)
 
     def _play_now_click(self):
         """Play the currently selected track immediately."""
