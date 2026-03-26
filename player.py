@@ -507,6 +507,46 @@ class MusicPlayer(ctk.CTk):
         sb.pack(side='left', fill='y')
         self.tree.config(yscrollcommand=sb.set)
 
+        # Smooth scrolling: amplify mousewheel for trackpad/mouse
+        def _on_mousewheel(ev):
+            self.tree.yview_scroll(-1 * (ev.delta // 30 or (1 if ev.delta > 0 else -1)), 'units')
+            return 'break'
+        def _on_button4(ev):
+            self.tree.yview_scroll(-5, 'units')
+            return 'break'
+        def _on_button5(ev):
+            self.tree.yview_scroll(5, 'units')
+            return 'break'
+        self.tree.bind('<MouseWheel>', _on_mousewheel)
+        self.tree.bind('<Button-4>', _on_button4)
+        self.tree.bind('<Button-5>', _on_button5)
+
+        # Up/Down keys: hold to scroll smoothly through the list
+        self._scroll_job = None
+        def _start_scroll(direction):
+            def _step():
+                children = self.tree.get_children()
+                if not children:
+                    return
+                sel = self.tree.selection()
+                if sel:
+                    idx = list(children).index(sel[0])
+                    nxt = max(0, idx + direction) if direction < 0 else min(len(children) - 1, idx + direction)
+                else:
+                    nxt = 0 if direction < 0 else len(children) - 1
+                self.tree.selection_set(children[nxt])
+                self.tree.see(children[nxt])
+                self._scroll_job = self.after(80, _step)
+            _step()
+        def _stop_scroll(ev=None):
+            if self._scroll_job is not None:
+                self.after_cancel(self._scroll_job)
+                self._scroll_job = None
+        self.tree.bind('<KeyPress-Up>', lambda ev: (_stop_scroll(), _start_scroll(-1), 'break')[-1])
+        self.tree.bind('<KeyPress-Down>', lambda ev: (_stop_scroll(), _start_scroll(1), 'break')[-1])
+        self.tree.bind('<KeyRelease-Up>', _stop_scroll)
+        self.tree.bind('<KeyRelease-Down>', _stop_scroll)
+
         paned.add(browse, stretch='always')
 
         # ── PLAY PANEL (right) ──
