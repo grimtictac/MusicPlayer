@@ -631,7 +631,10 @@ class MusicPlayer(ctk.CTk):
         menu.add_command(label='Add Folder\u2026', command=self.add_folder)
         x = self.btn_menu.winfo_rootx()
         y = self.btn_menu.winfo_rooty() + self.btn_menu.winfo_height()
-        menu.post(x, y)
+        try:
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
 
     # ── Genre dropdown ─────────────────────────────────
 
@@ -1327,7 +1330,10 @@ class MusicPlayer(ctk.CTk):
         menu.add_separator()
         menu.add_command(label='\U0001f5d1  Remove from Library',
                          command=lambda: self._context_remove(playlist_idx))
-        menu.post(ev.x_root, ev.y_root)
+        try:
+            menu.tk_popup(ev.x_root, ev.y_root)
+        finally:
+            menu.grab_release()
 
     def _context_play(self, playlist_idx):
         self._last_action = 'switching'
