@@ -56,6 +56,8 @@ class MusicPlayer(ctk.CTk):
         # Active filters
         self._active_genre = 'All'
         self._active_tag = 'All'
+        self._sort_column = None
+        self._sort_reverse = False
 
         # Genre groups: {group_name: [genre1, genre2, ...]}
         self._genre_groups = {}
@@ -500,13 +502,9 @@ class MusicPlayer(ctk.CTk):
         self.tree.column('First Played', width=100, anchor='w')
         self.tree.column('Last Played', width=100, anchor='w')
         self.tree.column('File Created', width=100, anchor='w')
-        self.tree.heading('Title', text='Title')
-        self.tree.heading('Comment', text='Comment')
-        self.tree.heading('Tags', text='Tags')
-        self.tree.heading('Plays', text='Plays')
-        self.tree.heading('First Played', text='First Played')
-        self.tree.heading('Last Played', text='Last Played')
-        self.tree.heading('File Created', text='File Created')
+        for col in ('Title', 'Comment', 'Tags', 'Plays', 'First Played', 'Last Played', 'File Created'):
+            self.tree.heading(col, text=col,
+                              command=lambda c=col: self._sort_by_column(c))
         self.tree.pack(side='left', fill='both', expand=True)
         self.tree.bind('<Double-1>', self._on_double)
         self.tree.bind('<<TreeviewSelect>>', self._on_select)
@@ -907,6 +905,31 @@ class MusicPlayer(ctk.CTk):
 
     # ── Filter logic ─────────────────────────────────────
 
+    # Column-to-entry-key mapping for sorting
+    _SORT_KEYS = {
+        'Title': lambda e: (e.get('title') or e['basename']).lower(),
+        'Comment': lambda e: (e.get('comment') or '').lower(),
+        'Tags': lambda e: ', '.join(sorted(e.get('tags', []))).lower(),
+        'Plays': lambda e: e.get('play_count', 0),
+        'First Played': lambda e: e.get('first_played') or '',
+        'Last Played': lambda e: e.get('last_played') or '',
+        'File Created': lambda e: e.get('file_created') or '',
+    }
+
+    def _sort_by_column(self, col):
+        if self._sort_column == col:
+            self._sort_reverse = not self._sort_reverse
+        else:
+            self._sort_column = col
+            self._sort_reverse = False
+        # Update heading text to show sort indicator
+        for c in ('Title', 'Comment', 'Tags', 'Plays', 'First Played', 'Last Played', 'File Created'):
+            arrow = ''
+            if c == self._sort_column:
+                arrow = ' \u25b2' if not self._sort_reverse else ' \u25bc'
+            self.tree.heading(c, text=f'{c}{arrow}')
+        self._apply_filter()
+
     def _apply_filter(self):
         # Remember which playlist indices were selected
         prev_selected = set()
@@ -925,6 +948,8 @@ class MusicPlayer(ctk.CTk):
         genre_filter = self._get_genres_for_filter()
         search_term = self._search_var.get().strip().lower() if hasattr(self, '_search_var') else ''
 
+        # Phase 1: collect matching indices
+        matched = []
         for idx, entry in enumerate(self.playlist):
             if genre_filter is not None:
                 if entry.get('genre') not in genre_filter:
@@ -937,7 +962,16 @@ class MusicPlayer(ctk.CTk):
                 comment_lower = entry.get('comment', '').lower()
                 if search_term not in title_lower and search_term not in comment_lower:
                     continue
+            matched.append(idx)
 
+        # Phase 2: sort if a column is selected
+        if self._sort_column and self._sort_column in self._SORT_KEYS:
+            key_fn = self._SORT_KEYS[self._sort_column]
+            matched.sort(key=lambda i: key_fn(self.playlist[i]), reverse=self._sort_reverse)
+
+        # Phase 3: insert into treeview
+        for idx in matched:
+            entry = self.playlist[idx]
             title = entry.get('title', entry['basename'])
             comment = entry.get('comment', '')
             tags_str = ', '.join(sorted(entry.get('tags', []))) if entry.get('tags') else '\u2014'
