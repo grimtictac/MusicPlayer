@@ -378,6 +378,9 @@ class MusicPlayer(ctk.CTk):
         style.map('Treeview.Heading',
                   background=[('active', '#4a4a4a')])
 
+        # Now-playing row highlight tag
+        self._now_playing_tag = 'now_playing'
+
         # ═══ TOP BAR ═══
         top_bar = ctk.CTkFrame(self, height=50, fg_color='#1a1a2e')
         top_bar.pack(fill='x')
@@ -506,6 +509,7 @@ class MusicPlayer(ctk.CTk):
             self.tree.heading(col, text=col,
                               command=lambda c=col: self._sort_by_column(c))
         self.tree.pack(side='left', fill='both', expand=True)
+        self.tree.tag_configure(self._now_playing_tag, background='#1a3a1a', foreground='#5dff5d')
         self.tree.bind('<Double-1>', self._on_double)
         self.tree.bind('<<TreeviewSelect>>', self._on_select)
 
@@ -979,7 +983,9 @@ class MusicPlayer(ctk.CTk):
             first_p = self._format_ts(entry.get('first_played'), relative=False)
             last_p = self._format_ts(entry.get('last_played'), relative=True)
             file_c = self._format_ts(entry.get('file_created'), relative=False)
-            self.tree.insert('', 'end', values=(title, comment, tags_str, plays, first_p, last_p, file_c))
+            row_tags = (self._now_playing_tag,) if idx == self.current_index and self.is_playing else ()
+            self.tree.insert('', 'end', values=(title, comment, tags_str, plays, first_p, last_p, file_c),
+                             tags=row_tags)
             self.display_indices.append(idx)
 
         # Restore selection
@@ -1078,6 +1084,20 @@ class MusicPlayer(ctk.CTk):
 
     # ── Playback ─────────────────────────────────────────
 
+    def _update_now_playing_highlight(self):
+        """Update the now-playing row tag without rebuilding the treeview."""
+        for item in self.tree.get_children():
+            tags = list(self.tree.item(item, 'tags'))
+            pos = list(self.tree.get_children()).index(item)
+            pl_idx = self.display_indices[pos] if pos < len(self.display_indices) else None
+            is_current = pl_idx == self.current_index and self.is_playing
+            if is_current and self._now_playing_tag not in tags:
+                tags.append(self._now_playing_tag)
+                self.tree.item(item, tags=tags)
+            elif not is_current and self._now_playing_tag in tags:
+                tags.remove(self._now_playing_tag)
+                self.tree.item(item, tags=tags)
+
     def _load(self, index):
         if index is None or index < 0 or index >= len(self.playlist):
             return False
@@ -1117,6 +1137,7 @@ class MusicPlayer(ctk.CTk):
             self.lbl_now_playing.configure(text=f'\u266b  {display}')
         else:
             self.lbl_now_playing.configure(text='\u266b  Not Playing')
+        self._update_now_playing_highlight()
 
     def play_pause(self):
         if self.is_playing and not self.is_paused:
