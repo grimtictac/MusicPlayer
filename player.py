@@ -465,7 +465,7 @@ class MusicPlayer(ctk.CTk):
         genre_header.pack(fill='x', padx=8, pady=(8, 4))
         ctk.CTkLabel(genre_header, text='Genre', font=ctk.CTkFont(size=13, weight='bold')).pack(side='left')
         ctk.CTkButton(genre_header, text='\u2699', width=30, height=26,
-                      font=ctk.CTkFont(size=14), command=self._open_genre_settings).pack(side='right')
+                      font=ctk.CTkFont(size=14), command=self._open_settings).pack(side='right')
 
         self._genre_var = tk.StringVar(value='All')
         self.genre_dropdown = ctk.CTkOptionMenu(
@@ -541,11 +541,6 @@ class MusicPlayer(ctk.CTk):
 
         self.tag_pills_frame = ctk.CTkScrollableFrame(tag_section, height=100, fg_color='transparent')
         self.tag_pills_frame.pack(fill='x', padx=8, pady=2)
-
-        # "+ new tag" button packed before the expanding quick-add frame so it stays visible
-        self.btn_new_tag = ctk.CTkButton(tag_section, text='+ new tag\u2026', height=28,
-                                         font=ctk.CTkFont(size=11), command=self._add_new_tag)
-        self.btn_new_tag.pack(side='bottom', fill='x', padx=8, pady=(4, 8))
 
         ctk.CTkLabel(tag_section, text='Quick add:', font=ctk.CTkFont(size=10),
                      text_color='#888888').pack(padx=8, pady=(8, 2), anchor='w')
@@ -803,62 +798,138 @@ class MusicPlayer(ctk.CTk):
         self._build_tag_bar()
         self._update_tag_editor()
 
-    def _add_new_tag(self):
-        sel = self.tree.selection()
-        if not sel:
-            messagebox.showinfo('No selection', 'Select a track first')
-            return
-        selected_indices = []
-        all_items = self.tree.get_children()
-        for item in sel:
-            try:
-                idx = list(all_items).index(item)
-                selected_indices.append(self.display_indices[idx])
-            except (ValueError, IndexError):
-                pass
-        if not selected_indices:
-            return
-        tag = simpledialog.askstring('New Tag', 'Enter tag name:', parent=self)
+    def _add_new_tag(self, parent_window=None, callback=None):
+        """Create a new tag (globally). Optionally apply to selected tracks."""
+        tag = simpledialog.askstring('New Tag', 'Enter tag name:',
+                                     parent=parent_window or self)
         if tag and tag.strip():
             tag = tag.strip().lower()
-            for idx in selected_indices:
-                self._add_tag_to_track(idx, tag)
+            self._all_tags.add(tag)
+            # Apply to selected tracks if any
+            sel = self.tree.selection()
+            all_items = self.tree.get_children()
+            for item in sel:
+                try:
+                    idx = list(all_items).index(item)
+                    self._add_tag_to_track(self.display_indices[idx], tag)
+                except (ValueError, IndexError):
+                    pass
             self._apply_filter()
             self._build_tag_bar()
             self._update_tag_editor()
+            if callback:
+                callback()
 
-    # ── Genre settings dialog ────────────────────────────
+    def _delete_tag_globally(self, tag):
+        """Remove a tag from all tracks and from _all_tags."""
+        self._all_tags.discard(tag)
+        con = sqlite3.connect(DB_PATH)
+        con.execute("DELETE FROM track_tags WHERE tag = ?", (tag,))
+        con.commit()
+        con.close()
+        for entry in self.playlist:
+            if tag in entry.get('tags', []):
+                entry['tags'].remove(tag)
+        self._active_tags.discard(tag)
+        self._apply_filter()
+        self._build_tag_bar()
+        self._update_tag_editor()
 
-    def _open_genre_settings(self):
+    def _rename_tag_globally(self, old_tag, new_tag, parent_window=None):
+        """Rename a tag across all tracks."""
+        new_tag = new_tag.strip().lower()
+        if not new_tag or new_tag == old_tag:
+            return
+        con = sqlite3.connect(DB_PATH)
+        # Update DB — delete new_tag duplicates first, then rename
+        con.execute("DELETE FROM track_tags WHERE tag = ? AND track_id IN "
+                    "(SELECT track_id FROM track_tags WHERE tag = ?)", (new_tag, old_tag))
+        con.execute("UPDATE track_tags SET tag = ? WHERE tag = ?", (new_tag, old_tag))
+        con.commit()
+        con.close()
+        for entry in self.playlist:
+            tags = entry.get('tags', [])
+            if old_tag in tags:
+                tags.remove(old_tag)
+                if new_tag not in tags:
+                    tags.append(new_tag)
+        self._all_tags.discard(old_tag)
+        self._all_tags.add(new_tag)
+        if old_tag in self._active_tags:
+            self._active_tags.discard(old_tag)
+            self._active_tags.add(new_tag)
+        self._apply_filter()
+        self._build_tag_bar()
+        self._update_tag_editor()
+
+    # ── Settings dialog (Genres + Tags) ──────────────────
+
+    def _open_settings(self):
         dialog = ctk.CTkToplevel(self)
-        dialog.title('Genre Settings')
-        dialog.geometry('500x600')
+        dialog.title('Settings')
+        dialog.geometry('520x650')
         dialog.transient(self)
-
-        # Delay grab_set to avoid CTkToplevel rendering blank
         dialog.after(100, dialog.grab_set)
 
-        ctk.CTkLabel(dialog, text='Genre Groups', font=ctk.CTkFont(size=16, weight='bold')).pack(pady=(10, 6))
-        ctk.CTkLabel(dialog, text='Create groups and assign genres to them.',
-                     font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 10))
+        # ── Tab bar ──
+        tab_bar = ctk.CTkFrame(dialog, fg_color='transparent')
+        tab_bar.pack(fill='x', padx=10, pady=(10, 0))
+
+        tab_container = ctk.CTkFrame(dialog, fg_color='transparent')
+        tab_container.pack(fill='both', expand=True, padx=10, pady=6)
+
+        genre_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
+        tags_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
+
+        active_tab = [None]
+
+        def show_tab(name):
+            if active_tab[0] == name:
+                return
+            active_tab[0] = name
+            genre_frame.pack_forget()
+            tags_frame.pack_forget()
+            if name == 'genres':
+                genre_frame.pack(fill='both', expand=True)
+                btn_tab_genres.configure(fg_color='#1f6aa5')
+                btn_tab_tags.configure(fg_color='transparent')
+            else:
+                tags_frame.pack(fill='both', expand=True)
+                btn_tab_genres.configure(fg_color='transparent')
+                btn_tab_tags.configure(fg_color='#1f6aa5')
+
+        btn_tab_genres = ctk.CTkButton(tab_bar, text='Genres', height=30,
+                                        font=ctk.CTkFont(size=12, weight='bold'),
+                                        fg_color='#1f6aa5', border_width=1, border_color='#555555',
+                                        command=lambda: show_tab('genres'))
+        btn_tab_genres.pack(side='left', padx=(0, 4))
+        btn_tab_tags = ctk.CTkButton(tab_bar, text='Tags', height=30,
+                                      font=ctk.CTkFont(size=12, weight='bold'),
+                                      fg_color='transparent', border_width=1, border_color='#555555',
+                                      command=lambda: show_tab('tags'))
+        btn_tab_tags.pack(side='left')
+
+        # ═══════════════ GENRES TAB ═══════════════
+        ctk.CTkLabel(genre_frame, text='Genre Groups',
+                     font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(6, 2))
+        ctk.CTkLabel(genre_frame, text='Create groups and assign genres to them.',
+                     font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 6))
 
         working_groups = {k: list(v) for k, v in self._genre_groups.items()}
         all_genres = sorted(self.genres)
 
-        content = ctk.CTkScrollableFrame(dialog)
-        content.pack(fill='both', expand=True, padx=10, pady=6)
+        genre_content = ctk.CTkScrollableFrame(genre_frame)
+        genre_content.pack(fill='both', expand=True)
 
-        # Track checkbox variables: cb_vars[group_name][genre] = BooleanVar
         cb_vars = {}
 
-        def rebuild_dialog():
-            """Full rebuild — only called for structural changes (add/delete/rename group)."""
-            for w in content.winfo_children():
+        def rebuild_genre_tab():
+            for w in genre_content.winfo_children():
                 w.destroy()
             cb_vars.clear()
 
             for gname in list(working_groups.keys()):
-                gf = ctk.CTkFrame(content, fg_color='#2b2b2b', corner_radius=8)
+                gf = ctk.CTkFrame(genre_content, fg_color='#2b2b2b', corner_radius=8)
                 gf.pack(fill='x', pady=4)
 
                 header = ctk.CTkFrame(gf, fg_color='transparent')
@@ -882,9 +953,7 @@ class MusicPlayer(ctk.CTk):
             _rebuild_ungrouped()
 
         def _rebuild_ungrouped():
-            """Refresh just the ungrouped section at the bottom."""
-            # Remove existing ungrouped frame if present
-            for w in content.winfo_children():
+            for w in genre_content.winfo_children():
                 if hasattr(w, '_is_ungrouped'):
                     w.destroy()
 
@@ -893,7 +962,7 @@ class MusicPlayer(ctk.CTk):
                 assigned.update(members)
             ungrouped = [g for g in all_genres if g not in assigned]
             if ungrouped:
-                uf = ctk.CTkFrame(content, fg_color='#222222', corner_radius=8)
+                uf = ctk.CTkFrame(genre_content, fg_color='#222222', corner_radius=8)
                 uf._is_ungrouped = True
                 uf.pack(fill='x', pady=4)
                 ctk.CTkLabel(uf, text='Ungrouped', font=ctk.CTkFont(size=13, weight='bold'),
@@ -903,9 +972,7 @@ class MusicPlayer(ctk.CTk):
                                  text_color='#666666').pack(anchor='w', padx=16, pady=1)
 
         def toggle_genre(group, genre, var):
-            """Toggle a genre in/out of a group — update variables only, no rebuild."""
             if var.get():
-                # Remove from other groups (uncheck their vars)
                 for g in working_groups:
                     if genre in working_groups[g]:
                         working_groups[g].remove(genre)
@@ -919,13 +986,13 @@ class MusicPlayer(ctk.CTk):
 
         def delete_group(gname):
             del working_groups[gname]
-            rebuild_dialog()
+            rebuild_genre_tab()
 
         def rename_group(gname):
             new_name = simpledialog.askstring('Rename Group', 'New name:', initialvalue=gname, parent=dialog)
             if new_name and new_name.strip() and new_name.strip() != gname:
                 working_groups[new_name.strip()] = working_groups.pop(gname)
-                rebuild_dialog()
+                rebuild_genre_tab()
 
         def add_group():
             name = simpledialog.askstring('New Group', 'Group name:', parent=dialog)
@@ -933,13 +1000,62 @@ class MusicPlayer(ctk.CTk):
                 name = name.strip()
                 if name not in working_groups:
                     working_groups[name] = []
-                    rebuild_dialog()
+                    rebuild_genre_tab()
 
-        rebuild_dialog()
+        rebuild_genre_tab()
 
+        genre_btn_row = ctk.CTkFrame(genre_frame, fg_color='transparent')
+        genre_btn_row.pack(fill='x', pady=(6, 0))
+        ctk.CTkButton(genre_btn_row, text='+ New Group', command=add_group).pack(side='left', padx=4)
+
+        # ═══════════════ TAGS TAB ═══════════════
+        ctk.CTkLabel(tags_frame, text='Manage Tags',
+                     font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(6, 2))
+        ctk.CTkLabel(tags_frame, text='Create, rename, or delete tags.',
+                     font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 6))
+
+        tags_content = ctk.CTkScrollableFrame(tags_frame)
+        tags_content.pack(fill='both', expand=True)
+
+        def rebuild_tags_tab():
+            for w in tags_content.winfo_children():
+                w.destroy()
+            for tag in sorted(self._all_tags):
+                row = ctk.CTkFrame(tags_content, fg_color='#2b2b2b', corner_radius=8)
+                row.pack(fill='x', pady=2)
+                ctk.CTkLabel(row, text=tag, font=ctk.CTkFont(size=12)).pack(side='left', padx=10, pady=6)
+                ctk.CTkButton(row, text='\U0001f5d1', width=30, height=24, fg_color='transparent',
+                              command=lambda t=tag: on_delete_tag(t)).pack(side='right', padx=4, pady=4)
+                ctk.CTkButton(row, text='\u270f', width=30, height=24, fg_color='transparent',
+                              command=lambda t=tag: on_rename_tag(t)).pack(side='right', padx=0, pady=4)
+
+            if not self._all_tags:
+                ctk.CTkLabel(tags_content, text='No tags yet.', font=ctk.CTkFont(size=11),
+                             text_color='#666666').pack(pady=20)
+
+        def on_delete_tag(tag):
+            if messagebox.askyesno('Delete Tag', f'Delete tag "{tag}" from all tracks?', parent=dialog):
+                self._delete_tag_globally(tag)
+                rebuild_tags_tab()
+
+        def on_rename_tag(tag):
+            new_name = simpledialog.askstring('Rename Tag', 'New name:', initialvalue=tag, parent=dialog)
+            if new_name and new_name.strip():
+                self._rename_tag_globally(tag, new_name, parent_window=dialog)
+                rebuild_tags_tab()
+
+        def on_add_tag():
+            self._add_new_tag(parent_window=dialog, callback=rebuild_tags_tab)
+
+        rebuild_tags_tab()
+
+        tags_btn_row = ctk.CTkFrame(tags_frame, fg_color='transparent')
+        tags_btn_row.pack(fill='x', pady=(6, 0))
+        ctk.CTkButton(tags_btn_row, text='+ New Tag', command=on_add_tag).pack(side='left', padx=4)
+
+        # ═══════════════ BOTTOM BUTTONS ═══════════════
         btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
         btn_row.pack(fill='x', padx=10, pady=10)
-        ctk.CTkButton(btn_row, text='+ New Group', command=add_group).pack(side='left', padx=4)
         ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
                       command=dialog.destroy).pack(side='right', padx=4)
 
@@ -953,6 +1069,8 @@ class MusicPlayer(ctk.CTk):
             dialog.destroy()
 
         ctk.CTkButton(btn_row, text='Save', command=save_and_close).pack(side='right', padx=4)
+
+        show_tab('genres')
 
     # ── Filter logic ─────────────────────────────────────
 
