@@ -10,10 +10,10 @@ Layout:
 - Bottom: big play/stop buttons + scrub bar
 """
 
-import json
 import os
 import sqlite3
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 import tkinter as tk
@@ -33,6 +33,7 @@ except Exception:
 
 PLAY_MIN_SECONDS = 5
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_player.db')
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_player_config.xml')
 
 
 class MusicPlayer(ctk.CTk):
@@ -186,19 +187,15 @@ class MusicPlayer(ctk.CTk):
                         con.execute("UPDATE tracks SET length = ? WHERE id = ?", (length, track_id))
                 con.commit()
 
-        # Load length filter durations from settings (if saved)
-        cur = con.execute("SELECT value FROM settings WHERE key = 'length_filter_durations'")
-        row = cur.fetchone()
-        if row:
-            try:
-                self._length_filter_durations = json.loads(row[0])
-            except Exception:
-                pass
-
         con.close()
         self._load_genre_groups()
 
     def _load_genre_groups(self):
+        """Load genre groups from XML config file (falling back to DB for migration)."""
+        if os.path.exists(CONFIG_PATH):
+            self._load_config_from_xml()
+            return
+        # Migrate from DB if XML doesn't exist yet
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute("SELECT id, group_name FROM genre_groups ORDER BY sort_order, group_name")
@@ -208,26 +205,64 @@ class MusicPlayer(ctk.CTk):
             cur.execute("SELECT genre FROM genre_group_members WHERE group_id = ? ORDER BY sort_order, genre", (gid,))
             self._genre_groups[gname] = [r[0] for r in cur.fetchall()]
         con.close()
+        # Write initial XML config
+        self._save_config_to_xml()
+
+    def _load_config_from_xml(self):
+        """Load all settings from the XML config file."""
+        tree = ET.parse(CONFIG_PATH)
+        root = tree.getroot()
+        # Genre groups
+        self._genre_groups = {}
+        groups_el = root.find('genre_groups')
+        if groups_el is not None:
+            for group_el in groups_el.findall('group'):
+                gname = group_el.get('name', '')
+                members = [m.text for m in group_el.findall('member') if m.text]
+                self._genre_groups[gname] = members
+        # Length filter durations
+        durations_el = root.find('length_filter_durations')
+        if durations_el is not None:
+            durations = []
+            for dur_el in durations_el.findall('duration'):
+                label = dur_el.get('label', '')
+                lo = dur_el.get('lo')
+                hi = dur_el.get('hi')
+                lo = int(lo) if lo else None
+                hi = int(hi) if hi else None
+                durations.append((label, lo, hi))
+            if durations:
+                self._length_filter_durations = durations
+
+    def _save_config_to_xml(self):
+        """Save all settings to the XML config file."""
+        root = ET.Element('music_player_config')
+        # Genre groups
+        groups_el = ET.SubElement(root, 'genre_groups')
+        for gname, members in self._genre_groups.items():
+            group_el = ET.SubElement(groups_el, 'group', name=gname)
+            for member in members:
+                m_el = ET.SubElement(group_el, 'member')
+                m_el.text = member
+        # Length filter durations
+        durations_el = ET.SubElement(root, 'length_filter_durations')
+        for label, lo, hi in self._length_filter_durations:
+            attrs = {'label': label}
+            if lo is not None:
+                attrs['lo'] = str(lo)
+            if hi is not None:
+                attrs['hi'] = str(hi)
+            ET.SubElement(durations_el, 'duration', **attrs)
+        # Write with indentation
+        ET.indent(root)
+        tree = ET.ElementTree(root)
+        tree.write(CONFIG_PATH, encoding='unicode', xml_declaration=True)
 
     def _save_genre_groups(self):
-        con = sqlite3.connect(DB_PATH)
-        con.execute("DELETE FROM genre_group_members")
-        con.execute("DELETE FROM genre_groups")
-        for sort_order, (gname, members) in enumerate(self._genre_groups.items()):
-            cur = con.execute("INSERT INTO genre_groups (group_name, sort_order) VALUES (?, ?)", (gname, sort_order))
-            gid = cur.lastrowid
-            for m_order, genre in enumerate(members):
-                con.execute("INSERT INTO genre_group_members (group_id, genre, sort_order) VALUES (?, ?, ?)",
-                            (gid, genre, m_order))
-        con.commit()
-        con.close()
+        self._save_config_to_xml()
 
     def _save_length_filter_durations(self):
-        con = sqlite3.connect(DB_PATH)
-        data = json.dumps([list(d) for d in self._length_filter_durations])
-        con.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('length_filter_durations', ?)", (data,))
-        con.commit()
-        con.close()
+        self._save_config_to_xml()
 
     def _load_tracks_from_db(self):
         con = sqlite3.connect(DB_PATH)

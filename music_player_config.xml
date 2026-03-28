@@ -1,0 +1,25 @@
+<?xml version='1.0' encoding='utf-8'?>
+<music_player_config>
+  <genre_groups>
+    <group name="Ballroom">
+      <member>Foxtrot, Rhythm</member>
+      <member>Foxtrot, Slow</member>
+      <member>Quickstep</member>
+      <member>Waltz</member>
+      <member>tango</member>
+      <member>Tango, International</member>
+    </group>
+    <group name="Latin">
+      <member>Cha Cha</member>
+      <member>Cha Cha </member>
+      <member>Cha-Cha</member>
+      <member>Jive</member>
+    </group>
+  </genre_groups>
+  <length_filter_durations>
+    <duration label="&lt; 2 min" lo="0" hi="120" />
+    <duration label="2 – 4 min" lo="120" hi="240" />
+    <duration label="4 – 7 min" lo="240" hi="420" />
+    <duration label="&gt; 7 min" lo="420" />
+  </length_filter_durations>
+</music_player_config>
