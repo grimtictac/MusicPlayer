@@ -565,6 +565,24 @@ class MusicPlayer(ctk.CTk):
                                             font=ctk.CTkFont(size=20, weight='bold'))
         self.lbl_now_playing.pack(side='left', fill='x', expand=True, padx=10)
 
+        # ── Like / Dislike buttons (top-right) ──
+        self._btn_thumbs_down = ctk.CTkButton(
+            top_bar, text='\U0001f44e', width=50, height=36,
+            font=ctk.CTkFont(size=22), fg_color='#c0392b', hover_color='#e74c3c',
+            command=lambda: self._ask_voter_and_vote(-1))
+        self._btn_thumbs_down.pack(side='right', padx=(4, 10), pady=7)
+
+        self._btn_thumbs_up = ctk.CTkButton(
+            top_bar, text='\U0001f44d', width=50, height=36,
+            font=ctk.CTkFont(size=22), fg_color='#27ae60', hover_color='#2ecc71',
+            command=lambda: self._ask_voter_and_vote(+1))
+        self._btn_thumbs_up.pack(side='right', padx=0, pady=7)
+
+        self._lbl_rating = ctk.CTkLabel(top_bar, text='\u2014',
+                                         font=ctk.CTkFont(size=20, weight='bold'),
+                                         text_color='#888888', width=40)
+        self._lbl_rating.pack(side='right', padx=(4, 4), pady=7)
+
         self.load_progress = ctk.CTkProgressBar(top_bar, mode='determinate', width=200)
         self.load_progress.set(0)
         self.lbl_load = ctk.CTkLabel(top_bar, text='', font=ctk.CTkFont(size=10))
@@ -770,39 +788,11 @@ class MusicPlayer(ctk.CTk):
         # ── PLAY PANEL (right) ──
         play_panel = ctk.CTkFrame(paned, fg_color='#2b2b2b', corner_radius=8)
 
-        # Play panel content: rating + volume
+        # Play panel content: volume only (rating moved to top bar)
         play_content = ctk.CTkFrame(play_panel, fg_color='transparent')
         play_content.pack(fill='both', expand=True, padx=4, pady=4)
 
-        # ── Rating section (top of play panel) ──
-        rating_section = ctk.CTkFrame(play_content, fg_color='#222233', corner_radius=8)
-        rating_section.pack(fill='x', padx=4, pady=(4, 8))
-
-        ctk.CTkLabel(rating_section, text='Rate this track',
-                     font=ctk.CTkFont(size=11, weight='bold'),
-                     text_color='#aaaaaa').pack(pady=(8, 2))
-
-        self._lbl_rating = ctk.CTkLabel(rating_section, text='\u2014',
-                                         font=ctk.CTkFont(size=28, weight='bold'),
-                                         text_color='#888888')
-        self._lbl_rating.pack(pady=(0, 4))
-
-        vote_row = ctk.CTkFrame(rating_section, fg_color='transparent')
-        vote_row.pack(pady=(0, 10))
-
-        self._btn_thumbs_up = ctk.CTkButton(
-            vote_row, text='\U0001f44d', width=70, height=55,
-            font=ctk.CTkFont(size=32), fg_color='#27ae60', hover_color='#2ecc71',
-            command=lambda: self._ask_voter_and_vote(+1))
-        self._btn_thumbs_up.pack(side='left', padx=6)
-
-        self._btn_thumbs_down = ctk.CTkButton(
-            vote_row, text='\U0001f44e', width=70, height=55,
-            font=ctk.CTkFont(size=32), fg_color='#c0392b', hover_color='#e74c3c',
-            command=lambda: self._ask_voter_and_vote(-1))
-        self._btn_thumbs_down.pack(side='left', padx=6)
-
-        # ── Volume (below rating) ──
+        # ── Volume ──
         vol_panel = ctk.CTkFrame(play_content, width=60, fg_color='transparent')
         vol_panel.pack(fill='y', expand=True, padx=(4, 4))
         vol_panel.pack_propagate(False)
