@@ -554,98 +554,81 @@ class MusicPlayer(ctk.CTk):
         # ── Filter Row 1: Genre + Rating + Liked by ──
         filter_row1 = ctk.CTkFrame(browse, fg_color='transparent')
         filter_row1.pack(fill='x', padx=8, pady=(8, 2))
+        # Columns: label, dropdown, label, dropdown, label, dropdown, (spacer), reset, gear
+        filter_row1.columnconfigure(1, weight=2)   # genre dropdown
+        filter_row1.columnconfigure(3, weight=1)   # rating dropdown
+        filter_row1.columnconfigure(5, weight=2)   # liked-by dropdown
+        filter_row1.columnconfigure(6, weight=0)   # spacer
 
-        ctk.CTkLabel(filter_row1, text='Genre', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        _dd_style = dict(height=26, font=ctk.CTkFont(size=11),
+                         fg_color='#3b3b3b', button_color='#4a4a4a',
+                         button_hover_color='#555555',
+                         dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
+                         dropdown_text_color='#dce4ee')
+
+        ctk.CTkLabel(filter_row1, text='Genre', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
         self._genre_var = tk.StringVar(value='All')
         self.genre_dropdown = ctk.CTkOptionMenu(
             filter_row1, variable=self._genre_var,
-            values=['All'], command=self._on_genre_dropdown,
-            width=160, height=26,
-            font=ctk.CTkFont(size=11),
-            fg_color='#3b3b3b', button_color='#4a4a4a',
-            button_hover_color='#555555',
-            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
-            dropdown_text_color='#dce4ee')
-        self.genre_dropdown.pack(side='left', padx=(6, 16))
+            values=['All'], command=self._on_genre_dropdown, **_dd_style)
+        self.genre_dropdown.grid(row=0, column=1, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row1, text='Rating', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        ctk.CTkLabel(filter_row1, text='Rating', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
         self._rating_filter_var = tk.StringVar(value='All')
         rating_vals = ['All', '≥ 1', '≥ 2', '≥ 3', '≥ 5', '≥ 10', '≤ -1', '≤ -3', '= 0']
         self._rating_filter_dropdown = ctk.CTkOptionMenu(
             filter_row1, variable=self._rating_filter_var,
-            values=rating_vals, command=self._on_rating_filter,
-            width=100, height=26, font=ctk.CTkFont(size=11),
-            fg_color='#3b3b3b', button_color='#4a4a4a',
-            button_hover_color='#555555',
-            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
-            dropdown_text_color='#dce4ee')
-        self._rating_filter_dropdown.pack(side='left', padx=(6, 16))
+            values=rating_vals, command=self._on_rating_filter, **_dd_style)
+        self._rating_filter_dropdown.grid(row=0, column=3, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row1, text='Liked by', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        ctk.CTkLabel(filter_row1, text='Liked by', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=4, sticky='w', padx=(0, 4))
         self._liked_by_var = tk.StringVar(value='All')
         self._liked_by_dropdown = ctk.CTkOptionMenu(
             filter_row1, variable=self._liked_by_var,
-            values=['All'], command=self._on_liked_by_filter,
-            width=140, height=26, font=ctk.CTkFont(size=11),
-            fg_color='#3b3b3b', button_color='#4a4a4a',
-            button_hover_color='#555555',
-            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
-            dropdown_text_color='#dce4ee')
-        self._liked_by_dropdown.pack(side='left', padx=(6, 0))
+            values=['All'], command=self._on_liked_by_filter, **_dd_style)
+        self._liked_by_dropdown.grid(row=0, column=5, sticky='ew', padx=(0, 6))
 
-        # Reset all filters button + settings gear (right-aligned on row 1)
-        ctk.CTkButton(
-            filter_row1, text='\u2699', width=28, height=24,
-            font=ctk.CTkFont(size=14), fg_color='transparent',
-            hover_color='#3b3b3b', command=self._open_settings
-        ).pack(side='right', padx=(0, 2))
+        # Reset + settings gear
         self._btn_reset_filters = ctk.CTkButton(
-            filter_row1, text='✕ Reset', width=70, height=24,
+            filter_row1, text='✕ Reset', width=60, height=24,
             font=ctk.CTkFont(size=10), fg_color='transparent',
             border_width=1, border_color='#555555',
             hover_color='#3b3b3b', text_color='#999999',
             command=self._reset_all_filters)
-        self._btn_reset_filters.pack(side='right', padx=(0, 2))
+        self._btn_reset_filters.grid(row=0, column=7, padx=(4, 2))
+        ctk.CTkButton(
+            filter_row1, text='\u2699', width=28, height=24,
+            font=ctk.CTkFont(size=14), fg_color='transparent',
+            hover_color='#3b3b3b', command=self._open_settings
+        ).grid(row=0, column=8, padx=(0, 0))
 
         # ── Filter Row 2: First Played + Last Played + File Created ──
         filter_row2 = ctk.CTkFrame(browse, fg_color='transparent')
         filter_row2.pack(fill='x', padx=8, pady=(0, 4))
+        filter_row2.columnconfigure(1, weight=1)
+        filter_row2.columnconfigure(3, weight=1)
+        filter_row2.columnconfigure(5, weight=1)
 
-        ctk.CTkLabel(filter_row2, text='First Played', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        ctk.CTkLabel(filter_row2, text='First Played', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
         self._first_played_var = tk.StringVar(value='All')
         self._first_played_dropdown = ctk.CTkOptionMenu(
             filter_row2, variable=self._first_played_var,
-            values=['All', 'Today', 'This Week', 'This Month'], command=self._on_first_played_filter,
-            width=110, height=26, font=ctk.CTkFont(size=11),
-            fg_color='#3b3b3b', button_color='#4a4a4a',
-            button_hover_color='#555555',
-            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
-            dropdown_text_color='#dce4ee')
-        self._first_played_dropdown.pack(side='left', padx=(6, 16))
+            values=['All', 'Today', 'This Week', 'This Month'], command=self._on_first_played_filter, **_dd_style)
+        self._first_played_dropdown.grid(row=0, column=1, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row2, text='Last Played', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        ctk.CTkLabel(filter_row2, text='Last Played', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
         self._last_played_var = tk.StringVar(value='All')
         self._last_played_dropdown = ctk.CTkOptionMenu(
             filter_row2, variable=self._last_played_var,
-            values=['All', 'Today', 'This Week', 'This Month'], command=self._on_last_played_filter,
-            width=110, height=26, font=ctk.CTkFont(size=11),
-            fg_color='#3b3b3b', button_color='#4a4a4a',
-            button_hover_color='#555555',
-            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
-            dropdown_text_color='#dce4ee')
-        self._last_played_dropdown.pack(side='left', padx=(6, 16))
+            values=['All', 'Today', 'This Week', 'This Month'], command=self._on_last_played_filter, **_dd_style)
+        self._last_played_dropdown.grid(row=0, column=3, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row2, text='File Created', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        ctk.CTkLabel(filter_row2, text='File Created', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=4, sticky='w', padx=(0, 4))
         self._file_created_var = tk.StringVar(value='All')
         self._file_created_dropdown = ctk.CTkOptionMenu(
             filter_row2, variable=self._file_created_var,
-            values=['All', 'Today', 'This Week', 'This Month'], command=self._on_file_created_filter,
-            width=110, height=26, font=ctk.CTkFont(size=11),
-            fg_color='#3b3b3b', button_color='#4a4a4a',
-            button_hover_color='#555555',
-            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
-            dropdown_text_color='#dce4ee')
-        self._file_created_dropdown.pack(side='left', padx=(6, 0))
+            values=['All', 'Today', 'This Week', 'This Month'], command=self._on_file_created_filter, **_dd_style)
+        self._file_created_dropdown.grid(row=0, column=5, sticky='ew')
 
         # Track list section
         tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
