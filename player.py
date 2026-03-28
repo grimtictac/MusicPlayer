@@ -643,7 +643,7 @@ class MusicPlayer(ctk.CTk):
         self._search_var = tk.StringVar()
         self._search_var.trace_add('write', lambda *_: self._apply_filter())
         self._search_entry = ctk.CTkEntry(tree_frame, textvariable=self._search_var,
-                                           placeholder_text='\U0001f50d  Search tracks\u2026',
+                                           placeholder_text='\U0001f50d  Search title, comment, tags, liked by\u2026',
                                            height=30, font=ctk.CTkFont(size=12))
         self._search_entry.pack(fill='x', pady=(0, 4))
 
@@ -1355,7 +1355,12 @@ class MusicPlayer(ctk.CTk):
             if search_term:
                 title_lower = entry.get('title', entry['basename']).lower()
                 comment_lower = entry.get('comment', '').lower()
-                if search_term not in title_lower and search_term not in comment_lower:
+                tags_lower = ' '.join(entry.get('tags', [])).lower()
+                liked_lower = ' '.join(entry.get('liked_by', set())).lower()
+                if (search_term not in title_lower
+                        and search_term not in comment_lower
+                        and search_term not in tags_lower
+                        and search_term not in liked_lower):
                     continue
             matched.append(idx)
 
