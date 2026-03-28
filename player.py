@@ -61,11 +61,20 @@ class MusicPlayer(ctk.CTk):
         self._sort_reverse = False
         self._rating_threshold = None  # None = no filter, (op, val) e.g. ('>=', 3)
         self._liked_by_filter = None  # None = All, else voter name string
+        self._length_filter = 'All'  # active length filter label
 
         # Genre groups: {group_name: [genre1, genre2, ...]}
         self._genre_groups = {}
         self._all_tags = set()
         self._all_voters = set()  # known voter names
+
+        # Default length filter durations (in seconds) — configurable in settings
+        self._length_filter_durations = [
+            ('< 2 min', 0, 120),
+            ('2 – 4 min', 120, 240),
+            ('4 – 7 min', 240, 420),
+            ('> 7 min', 420, None),
+        ]
 
         # VLC
         self.vlc_instance = vlc.Instance()
@@ -121,6 +130,18 @@ class MusicPlayer(ctk.CTk):
         if 'comment' not in columns:
             con.execute("ALTER TABLE tracks ADD COLUMN comment TEXT DEFAULT ''")
             con.commit()
+        if 'length' not in columns:
+            con.execute("ALTER TABLE tracks ADD COLUMN length REAL")
+            con.commit()
+
+        # Settings key-value store
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        con.commit()
 
         # One-time backfill
         cur = con.execute("SELECT COUNT(*) FROM tracks WHERE genre != 'Unknown'")
@@ -147,6 +168,33 @@ class MusicPlayer(ctk.CTk):
                     (genre, comment, title, track_id)
                 )
             con.commit()
+
+        # Backfill missing track lengths
+        if MutagenFile is not None:
+            cur = con.execute("SELECT id, file_path FROM tracks WHERE length IS NULL")
+            rows_to_fill = cur.fetchall()
+            if rows_to_fill:
+                for track_id, fpath in rows_to_fill:
+                    length = None
+                    try:
+                        audio = MutagenFile(fpath)
+                        if audio is not None and audio.info is not None:
+                            length = audio.info.length
+                    except Exception:
+                        pass
+                    if length is not None:
+                        con.execute("UPDATE tracks SET length = ? WHERE id = ?", (length, track_id))
+                con.commit()
+
+        # Load length filter durations from settings (if saved)
+        cur = con.execute("SELECT value FROM settings WHERE key = 'length_filter_durations'")
+        row = cur.fetchone()
+        if row:
+            try:
+                self._length_filter_durations = json.loads(row[0])
+            except Exception:
+                pass
+
         con.close()
         self._load_genre_groups()
 
@@ -174,12 +222,19 @@ class MusicPlayer(ctk.CTk):
         con.commit()
         con.close()
 
+    def _save_length_filter_durations(self):
+        con = sqlite3.connect(DB_PATH)
+        data = json.dumps([list(d) for d in self._length_filter_durations])
+        con.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('length_filter_durations', ?)", (data,))
+        con.commit()
+        con.close()
+
     def _load_tracks_from_db(self):
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute(
             "SELECT file_path, title, play_count, first_played, last_played, "
-            "file_created, genre, comment FROM tracks ORDER BY title"
+            "file_created, genre, comment, length FROM tracks ORDER BY title"
         )
         rows = cur.fetchall()
 
@@ -212,7 +267,7 @@ class MusicPlayer(ctk.CTk):
 
         seen = set()
         for (path, db_title, play_count, first_played, last_played,
-             file_created, genre, comment) in rows:
+             file_created, genre, comment, length) in rows:
             if path in seen:
                 continue
             seen.add(path)
@@ -227,6 +282,7 @@ class MusicPlayer(ctk.CTk):
                 'first_played': first_played,
                 'last_played': last_played,
                 'file_created': file_created,
+                'length': length,
                 'tags': tags_by_path.get(path, []),
                 'rating': vdata['rating'],
                 'liked_by': vdata['liked_by'],
@@ -241,10 +297,10 @@ class MusicPlayer(ctk.CTk):
         self._build_tag_bar()
         self.lbl_now_playing.configure(text=f'\u266b  {len(self.playlist)} tracks loaded')
 
-    def _ensure_track_in_db(self, path, title='', genre='Unknown', comment=''):
+    def _ensure_track_in_db(self, path, title='', genre='Unknown', comment='', length=None):
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
-        cur.execute("SELECT play_count, first_played, last_played, file_created FROM tracks WHERE file_path = ?", (path,))
+        cur.execute("SELECT play_count, first_played, last_played, file_created, length FROM tracks WHERE file_path = ?", (path,))
         row = cur.fetchone()
         if row is None:
             try:
@@ -252,12 +308,18 @@ class MusicPlayer(ctk.CTk):
             except OSError:
                 file_created = None
             cur.execute(
-                "INSERT INTO tracks (file_path, title, file_created, genre, comment) VALUES (?, ?, ?, ?, ?)",
-                (path, title, file_created, genre, comment)
+                "INSERT INTO tracks (file_path, title, file_created, genre, comment, length) VALUES (?, ?, ?, ?, ?, ?)",
+                (path, title, file_created, genre, comment, length)
             )
             con.commit()
             con.close()
-            return (0, None, None, file_created)
+            return (0, None, None, file_created, length)
+        # If length was not stored yet, update it
+        if row[4] is None and length is not None:
+            cur.execute("UPDATE tracks SET length = ? WHERE file_path = ?", (length, path))
+            con.commit()
+            con.close()
+            return (row[0], row[1], row[2], row[3], length)
         con.close()
         return row
 
@@ -320,6 +382,23 @@ class MusicPlayer(ctk.CTk):
         if days < 7:
             return f'{days}d ago'
         return dt.strftime('%b %d, %Y')
+
+    @staticmethod
+    def _format_duration(seconds):
+        """Format seconds as M:SS or H:MM:SS."""
+        if seconds is None:
+            return '—'
+        seconds = int(seconds)
+        if seconds < 0:
+            return '—'
+        if seconds >= 3600:
+            h = seconds // 3600
+            m = (seconds % 3600) // 60
+            s = seconds % 60
+            return f'{h}:{m:02d}:{s:02d}'
+        m = seconds // 60
+        s = seconds % 60
+        return f'{m}:{s:02d}'
 
     # ── Tag helpers ──────────────────────────────────────
 
@@ -602,12 +681,13 @@ class MusicPlayer(ctk.CTk):
             hover_color='#3b3b3b', command=self._open_settings
         ).grid(row=0, column=8, padx=(0, 0))
 
-        # ── Filter Row 2: First Played + Last Played + File Created ──
+        # ── Filter Row 2: First Played + Last Played + File Created + Length ──
         filter_row2 = ctk.CTkFrame(browse, fg_color='transparent')
         filter_row2.pack(fill='x', padx=8, pady=(0, 4))
         filter_row2.columnconfigure(1, weight=1)
         filter_row2.columnconfigure(3, weight=1)
         filter_row2.columnconfigure(5, weight=1)
+        filter_row2.columnconfigure(7, weight=1)
 
         ctk.CTkLabel(filter_row2, text='First Played', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
         self._first_played_var = tk.StringVar(value='All')
@@ -628,7 +708,14 @@ class MusicPlayer(ctk.CTk):
         self._file_created_dropdown = ctk.CTkOptionMenu(
             filter_row2, variable=self._file_created_var,
             values=['All', 'Today', 'This Week', 'This Month'], command=self._on_file_created_filter, **_dd_style)
-        self._file_created_dropdown.grid(row=0, column=5, sticky='ew')
+        self._file_created_dropdown.grid(row=0, column=5, sticky='ew', padx=(0, 10))
+
+        ctk.CTkLabel(filter_row2, text='Length', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=6, sticky='w', padx=(0, 4))
+        self._length_filter_var = tk.StringVar(value='All')
+        self._length_filter_dropdown = ctk.CTkOptionMenu(
+            filter_row2, variable=self._length_filter_var,
+            values=self._get_length_filter_values(), command=self._on_length_filter, **_dd_style)
+        self._length_filter_dropdown.grid(row=0, column=7, sticky='ew')
 
         # Track list section
         tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
@@ -647,12 +734,13 @@ class MusicPlayer(ctk.CTk):
                                            height=30, font=ctk.CTkFont(size=12))
         self._search_entry.pack(fill='x', pady=(0, 4))
 
-        self._all_columns = ('Title', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
+        self._all_columns = ('Title', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
                               'Plays', 'First Played', 'Last Played', 'File Created')
         self.tree = ttk.Treeview(tree_frame,
                                  columns=self._all_columns,
                                  show='headings', height=18)
         self.tree.column('Title', width=200, anchor='w')
+        self.tree.column('Length', width=55, anchor='center')
         self.tree.column('Rating', width=55, anchor='center')
         self.tree.column('Comment', width=100, anchor='w')
         self.tree.column('Tags', width=100, anchor='w')
@@ -877,6 +965,21 @@ class MusicPlayer(ctk.CTk):
         self._apply_filter()
         self._build_tag_bar()
 
+    def _on_length_filter(self, choice):
+        self._length_filter_var.set(choice)
+        self._apply_filter()
+        self._build_tag_bar()
+
+    def _get_length_filter_values(self):
+        """Return dropdown values list from the configurable length filter durations."""
+        return ['All'] + [lbl for lbl, lo, hi in self._length_filter_durations]
+
+    def _rebuild_length_filter_dropdown(self):
+        """Rebuild the length filter dropdown with current duration labels."""
+        if hasattr(self, '_length_filter_dropdown'):
+            self._length_filter_dropdown.configure(values=self._get_length_filter_values())
+            self._length_filter_var.set('All')
+
     def _reset_all_filters(self):
         """Reset all filter dropdowns back to 'All'."""
         self._rating_filter_var.set('All')
@@ -886,6 +989,7 @@ class MusicPlayer(ctk.CTk):
         self._first_played_var.set('All')
         self._last_played_var.set('All')
         self._file_created_var.set('All')
+        self._length_filter_var.set('All')
         self._genre_var.set('All')
         self._active_genre = 'All'
         self._active_tags = set()
@@ -1034,8 +1138,10 @@ class MusicPlayer(ctk.CTk):
 
         genre_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
         tags_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
+        length_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
 
         active_tab = [None]
+        tab_buttons = {}
 
         def show_tab(name):
             if active_tab[0] == name:
@@ -1043,25 +1149,35 @@ class MusicPlayer(ctk.CTk):
             active_tab[0] = name
             genre_frame.pack_forget()
             tags_frame.pack_forget()
+            length_frame.pack_forget()
+            for btn in tab_buttons.values():
+                btn.configure(fg_color='transparent')
             if name == 'genres':
                 genre_frame.pack(fill='both', expand=True)
-                btn_tab_genres.configure(fg_color='#1f6aa5')
-                btn_tab_tags.configure(fg_color='transparent')
-            else:
+            elif name == 'tags':
                 tags_frame.pack(fill='both', expand=True)
-                btn_tab_genres.configure(fg_color='transparent')
-                btn_tab_tags.configure(fg_color='#1f6aa5')
+            elif name == 'length':
+                length_frame.pack(fill='both', expand=True)
+            tab_buttons[name].configure(fg_color='#1f6aa5')
 
         btn_tab_genres = ctk.CTkButton(tab_bar, text='Genres', height=30,
                                         font=ctk.CTkFont(size=12, weight='bold'),
                                         fg_color='#1f6aa5', border_width=1, border_color='#555555',
                                         command=lambda: show_tab('genres'))
         btn_tab_genres.pack(side='left', padx=(0, 4))
+        tab_buttons['genres'] = btn_tab_genres
         btn_tab_tags = ctk.CTkButton(tab_bar, text='Tags', height=30,
                                       font=ctk.CTkFont(size=12, weight='bold'),
                                       fg_color='transparent', border_width=1, border_color='#555555',
                                       command=lambda: show_tab('tags'))
-        btn_tab_tags.pack(side='left')
+        btn_tab_tags.pack(side='left', padx=(0, 4))
+        tab_buttons['tags'] = btn_tab_tags
+        btn_tab_length = ctk.CTkButton(tab_bar, text='Length', height=30,
+                                        font=ctk.CTkFont(size=12, weight='bold'),
+                                        fg_color='transparent', border_width=1, border_color='#555555',
+                                        command=lambda: show_tab('length'))
+        btn_tab_length.pack(side='left')
+        tab_buttons['length'] = btn_tab_length
 
         # ═══════════════ GENRES TAB ═══════════════
         ctk.CTkLabel(genre_frame, text='Genre Groups',
@@ -1207,6 +1323,104 @@ class MusicPlayer(ctk.CTk):
         tags_btn_row.pack(fill='x', pady=(6, 0))
         ctk.CTkButton(tags_btn_row, text='+ New Tag', command=on_add_tag).pack(side='left', padx=4)
 
+        # ═══════════════ LENGTH TAB ═══════════════
+        ctk.CTkLabel(length_frame, text='Length Filter Durations',
+                     font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(6, 2))
+        ctk.CTkLabel(length_frame, text='Configure the duration ranges for the Length filter dropdown.',
+                     font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 6))
+
+        # Working copy of durations: list of [label, lo_seconds_or_None, hi_seconds_or_None]
+        working_durations = [list(d) for d in self._length_filter_durations]
+
+        length_content = ctk.CTkScrollableFrame(length_frame)
+        length_content.pack(fill='both', expand=True)
+
+        def _secs_to_min_str(secs):
+            if secs is None:
+                return ''
+            m = secs // 60
+            s = secs % 60
+            return f'{m}:{s:02d}' if s else str(m)
+
+        def _parse_min_str(text):
+            """Parse 'M' or 'M:SS' to seconds, or None if empty."""
+            text = text.strip()
+            if not text:
+                return None
+            parts = text.split(':')
+            try:
+                if len(parts) == 2:
+                    return int(parts[0]) * 60 + int(parts[1])
+                return int(parts[0]) * 60
+            except ValueError:
+                return None
+
+        def rebuild_length_tab():
+            for w in length_content.winfo_children():
+                w.destroy()
+
+            for i, dur in enumerate(working_durations):
+                row = ctk.CTkFrame(length_content, fg_color='#2b2b2b', corner_radius=8)
+                row.pack(fill='x', pady=2)
+                row.columnconfigure(1, weight=1)
+                row.columnconfigure(3, weight=0)
+                row.columnconfigure(5, weight=0)
+
+                ctk.CTkLabel(row, text='Label', font=ctk.CTkFont(size=11),
+                             text_color='#888888').grid(row=0, column=0, padx=(8, 4), pady=6)
+                lbl_var = tk.StringVar(value=dur[0])
+                lbl_entry = ctk.CTkEntry(row, textvariable=lbl_var, width=120, height=26,
+                                          font=ctk.CTkFont(size=11))
+                lbl_entry.grid(row=0, column=1, sticky='ew', padx=(0, 8), pady=6)
+
+                ctk.CTkLabel(row, text='From', font=ctk.CTkFont(size=11),
+                             text_color='#888888').grid(row=0, column=2, padx=(0, 4), pady=6)
+                lo_var = tk.StringVar(value=_secs_to_min_str(dur[1]))
+                lo_entry = ctk.CTkEntry(row, textvariable=lo_var, width=50, height=26,
+                                         font=ctk.CTkFont(size=11),
+                                         placeholder_text='min')
+                lo_entry.grid(row=0, column=3, padx=(0, 8), pady=6)
+
+                ctk.CTkLabel(row, text='To', font=ctk.CTkFont(size=11),
+                             text_color='#888888').grid(row=0, column=4, padx=(0, 4), pady=6)
+                hi_var = tk.StringVar(value=_secs_to_min_str(dur[2]))
+                hi_entry = ctk.CTkEntry(row, textvariable=hi_var, width=50, height=26,
+                                         font=ctk.CTkFont(size=11),
+                                         placeholder_text='min')
+                hi_entry.grid(row=0, column=5, padx=(0, 4), pady=6)
+
+                ctk.CTkButton(row, text='\U0001f5d1', width=30, height=24, fg_color='transparent',
+                              command=lambda idx=i: delete_duration(idx)).grid(row=0, column=6, padx=(0, 4), pady=6)
+
+                # Bind changes
+                def _on_change(idx=i, lv=lbl_var, lov=lo_var, hiv=hi_var):
+                    working_durations[idx] = [lv.get(), _parse_min_str(lov.get()), _parse_min_str(hiv.get())]
+                lbl_var.trace_add('write', lambda *_, f=_on_change: f())
+                lo_var.trace_add('write', lambda *_, f=_on_change: f())
+                hi_var.trace_add('write', lambda *_, f=_on_change: f())
+
+            if not working_durations:
+                ctk.CTkLabel(length_content, text='No duration ranges configured.',
+                             font=ctk.CTkFont(size=11), text_color='#666666').pack(pady=20)
+
+        def delete_duration(idx):
+            working_durations.pop(idx)
+            rebuild_length_tab()
+
+        def add_duration():
+            working_durations.append(['New Range', 0, 300])
+            rebuild_length_tab()
+
+        rebuild_length_tab()
+
+        length_btn_row = ctk.CTkFrame(length_frame, fg_color='transparent')
+        length_btn_row.pack(fill='x', pady=(6, 0))
+        ctk.CTkButton(length_btn_row, text='+ Add Range', command=add_duration).pack(side='left', padx=4)
+
+        ctk.CTkLabel(length_frame, text='Enter times as minutes (e.g. "2") or M:SS (e.g. "4:30").\n'
+                     'Leave From or To empty for open-ended ranges.',
+                     font=ctk.CTkFont(size=10), text_color='#666666').pack(pady=(4, 0))
+
         # ═══════════════ BOTTOM BUTTONS ═══════════════
         btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
         btn_row.pack(fill='x', padx=10, pady=10)
@@ -1217,6 +1431,11 @@ class MusicPlayer(ctk.CTk):
             self._genre_groups = working_groups
             self._save_genre_groups()
             self._build_genre_list()
+            # Save length filter durations
+            valid_durations = [d for d in working_durations if d[0].strip()]
+            self._length_filter_durations = [tuple(d) for d in valid_durations]
+            self._save_length_filter_durations()
+            self._rebuild_length_filter_dropdown()
             self._active_genre = 'All'
             self._apply_filter()
             self._build_tag_bar()
@@ -1231,6 +1450,7 @@ class MusicPlayer(ctk.CTk):
     # Column-to-entry-key mapping for sorting
     _SORT_KEYS = {
         'Title': lambda e: (e.get('title') or e['basename']).lower(),
+        'Length': lambda e: e.get('length') or 0,
         'Rating': lambda e: e.get('rating', 0),
         'Comment': lambda e: (e.get('comment') or '').lower(),
         'Tags': lambda e: ', '.join(sorted(e.get('tags', []))).lower(),
@@ -1353,6 +1573,25 @@ class MusicPlayer(ctk.CTk):
                     continue
                 if file_created_filter.get() == 'This Month' and (not fc_date or fc_date < month_ago):
                     continue
+            # Length filter
+            length_label = getattr(self, '_length_filter_var', None)
+            if length_label and length_label.get() != 'All':
+                track_len = entry.get('length')
+                lf_label = length_label.get()
+                matched_len = False
+                for lbl, lo, hi in self._length_filter_durations:
+                    if lbl == lf_label:
+                        if track_len is None:
+                            matched_len = False
+                        elif lo is not None and hi is not None:
+                            matched_len = lo <= track_len < hi
+                        elif lo is not None:
+                            matched_len = track_len >= lo
+                        elif hi is not None:
+                            matched_len = track_len < hi
+                        break
+                if not matched_len:
+                    continue
             if search_term:
                 title_lower = entry.get('title', entry['basename']).lower()
                 comment_lower = entry.get('comment', '').lower()
@@ -1384,6 +1623,7 @@ class MusicPlayer(ctk.CTk):
         for idx in matched:
             entry = self.playlist[idx]
             title = entry.get('title', entry['basename'])
+            length_str = self._format_duration(entry.get('length'))
             rating = entry.get('rating', 0)
             rating_str = f'+{rating}' if rating > 0 else str(rating)
             comment = entry.get('comment', '')
@@ -1406,7 +1646,7 @@ class MusicPlayer(ctk.CTk):
             if search_term:
                 row_tags.append('search_match')
             self.tree.insert('', 'end',
-                             values=(title, rating_str, comment, tags_str, liked_str, disliked_str,
+                             values=(title, length_str, rating_str, comment, tags_str, liked_str, disliked_str,
                                      plays, first_p, last_p, file_c),
                              tags=tuple(row_tags))
             self.display_indices.append(idx)
@@ -1484,6 +1724,7 @@ class MusicPlayer(ctk.CTk):
         title = os.path.basename(path)
         genre = 'Unknown'
         comment = ''
+        length = None
         if MutagenFile is not None:
             try:
                 tags = MutagenFile(path, easy=True)
@@ -1494,16 +1735,23 @@ class MusicPlayer(ctk.CTk):
                     comment = str(comment_val) if comment_val else ''
             except Exception:
                 pass
+            try:
+                audio = MutagenFile(path)
+                if audio is not None and audio.info is not None:
+                    length = audio.info.length
+            except Exception:
+                pass
         entry = {'path': path, 'title': title, 'basename': os.path.basename(path),
-                 'genre': genre, 'comment': comment, 'tags': [],
+                 'genre': genre, 'comment': comment, 'length': length, 'tags': [],
                  'rating': 0, 'liked_by': set(), 'disliked_by': set()}
         self.playlist.append(entry)
         self.genres.add(genre)
-        stats = self._ensure_track_in_db(path, title, genre, comment)
+        stats = self._ensure_track_in_db(path, title, genre, comment, length)
         entry['play_count'] = stats[0]
         entry['first_played'] = stats[1]
         entry['last_played'] = stats[2]
         entry['file_created'] = stats[3]
+        entry['length'] = stats[4]
         return True
 
     # ── Playback ─────────────────────────────────────────
