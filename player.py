@@ -671,11 +671,19 @@ class MusicPlayer(ctk.CTk):
         self.btn_stop.grid(row=0, column=1, sticky='ew', padx=(3, 0))
 
         # ═══ PLAY NOW BAR (under play controls, hidden until track selected) ═══
-        self.btn_play_now = ctk.CTkButton(self, text='\u25b6  Play Now', height=44,
+        self._play_bar = ctk.CTkFrame(self, fg_color='transparent')
+        self.btn_play_now = ctk.CTkButton(self._play_bar, text='\u25b6  Play Now', height=44,
                                           font=ctk.CTkFont(size=20, weight='bold'),
                                           fg_color='#f1c40f', hover_color='#f39c12',
                                           text_color='#000000',
                                           command=self._play_now_click)
+        self.btn_play_now.pack(side='left', fill='x', expand=True, padx=(0, 3))
+        self.btn_play_next = ctk.CTkButton(self._play_bar, text='\u23ed  Play Next', height=44,
+                                           font=ctk.CTkFont(size=16, weight='bold'),
+                                           fg_color='#e67e22', hover_color='#d35400',
+                                           text_color='#000000',
+                                           command=self._play_next_click)
+        self.btn_play_next.pack(side='left', fill='x', padx=(3, 0))
         self._play_now_visible = False
 
         self._tag_buttons = []
@@ -2453,6 +2461,8 @@ class MusicPlayer(ctk.CTk):
             if self._play_now_visible:
                 self.btn_play_now.configure(state='disabled',
                                             fg_color='#555555', text_color='#888888')
+                self.btn_play_next.configure(state='disabled',
+                                             fg_color='#555555', text_color='#888888')
             return
         item = sel[0]
         all_items = self.tree.get_children()
@@ -2463,6 +2473,8 @@ class MusicPlayer(ctk.CTk):
             if self._play_now_visible:
                 self.btn_play_now.configure(state='disabled',
                                             fg_color='#555555', text_color='#888888')
+                self.btn_play_next.configure(state='disabled',
+                                             fg_color='#555555', text_color='#888888')
             return
 
         # Show "Play Now" button — disable if selected track is already playing
@@ -2476,8 +2488,10 @@ class MusicPlayer(ctk.CTk):
             self.btn_play_now.configure(text=f'\u25b6  Play Now \u2014 {title[:40]}',
                                         state='normal',
                                         fg_color='#f1c40f', text_color='#000000')
+        self.btn_play_next.configure(state='normal',
+                                     fg_color='#e67e22', text_color='#000000')
         if not self._play_now_visible:
-            self.btn_play_now.pack(fill='x', padx=20, pady=(0, 6), after=self._controls_frame)
+            self._play_bar.pack(fill='x', padx=20, pady=(0, 6), after=self._controls_frame)
             self._play_now_visible = True
 
     def _play_now_click(self):
@@ -2511,6 +2525,25 @@ class MusicPlayer(ctk.CTk):
         self.btn_play_now.configure(text=f'\u25b6  Playing \u2014 {title[:40]}',
                                     state='disabled',
                                     fg_color='#555555', text_color='#888888')
+
+    def _play_next_click(self):
+        """Add the currently selected track as the next song in the queue."""
+        sel = self.tree.selection()
+        if not sel:
+            return
+        item = sel[0]
+        all_items = self.tree.get_children()
+        try:
+            idx = list(all_items).index(item)
+            playlist_idx = self.display_indices[idx]
+        except (ValueError, IndexError):
+            return
+        self._insert_in_queue(playlist_idx, 0)
+        entry = self.playlist[playlist_idx]
+        title = entry.get('title', entry['basename'])
+        self.btn_play_next.configure(text=f'\u23ed  Queued: {title[:25]}',
+                                     state='disabled',
+                                     fg_color='#555555', text_color='#888888')
 
     def _on_double(self, ev):
         sel = self.tree.selection()
