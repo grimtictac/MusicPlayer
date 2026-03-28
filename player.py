@@ -679,6 +679,7 @@ class MusicPlayer(ctk.CTk):
         btn_row.pack(fill='x', padx=20, pady=(6, 10))
         btn_row.columnconfigure(0, weight=2)
         btn_row.columnconfigure(1, weight=1)
+        btn_row.columnconfigure(2, weight=0)
 
         self.btn_play = ctk.CTkButton(btn_row, text='\u25b6', height=50,
                                       font=ctk.CTkFont(size=28), command=self.play_pause,
@@ -688,7 +689,25 @@ class MusicPlayer(ctk.CTk):
         self.btn_stop = ctk.CTkButton(btn_row, text='\u23f9', height=50,
                                       font=ctk.CTkFont(size=28), command=self.stop,
                                       fg_color='#c0392b', hover_color='#e74c3c')
-        self.btn_stop.grid(row=0, column=1, sticky='ew', padx=(3, 0))
+        self.btn_stop.grid(row=0, column=1, sticky='ew', padx=(3, 3))
+
+        # Speed control
+        speed_frame = ctk.CTkFrame(btn_row, fg_color='#2b2b2b', corner_radius=8)
+        speed_frame.grid(row=0, column=2, sticky='ns', padx=(3, 0))
+
+        ctk.CTkLabel(speed_frame, text='Speed', font=ctk.CTkFont(size=9),
+                     text_color='#888888').pack(pady=(4, 0))
+        self._speed_var = tk.DoubleVar(value=1.0)
+        self._speed_label = ctk.CTkLabel(speed_frame, text='1.0×', font=ctk.CTkFont(size=11, weight='bold'))
+        self._speed_label.pack(pady=(0, 2))
+        speed_down = ctk.CTkButton(speed_frame, text='−', width=28, height=20,
+                                    font=ctk.CTkFont(size=14), fg_color='#3b3b3b',
+                                    command=self._speed_down)
+        speed_down.pack(side='left', padx=(4, 2), pady=(0, 4))
+        speed_up = ctk.CTkButton(speed_frame, text='+', width=28, height=20,
+                                  font=ctk.CTkFont(size=14), fg_color='#3b3b3b',
+                                  command=self._speed_up)
+        speed_up.pack(side='left', padx=(2, 4), pady=(0, 4))
 
         # ═══ PLAY NOW BAR (under play controls, hidden until track selected) ═══
         self._play_bar = ctk.CTkFrame(self, fg_color='transparent')
@@ -2114,6 +2133,27 @@ class MusicPlayer(ctk.CTk):
             self._on_volume()
             self._muted = True
             self.btn_mute.configure(text='\U0001f507')
+
+    # ── Playback speed ───────────────────────────────────
+
+    def _apply_speed(self):
+        """Apply the current speed to VLC."""
+        speed = self._speed_var.get()
+        mp = self.vlc_player.get_media_player()
+        mp.set_rate(speed)
+        self._speed_label.configure(text=f'{speed:.1f}×')
+
+    def _speed_up(self):
+        cur = self._speed_var.get()
+        new = min(cur + 0.1, 3.0)
+        self._speed_var.set(round(new, 1))
+        self._apply_speed()
+
+    def _speed_down(self):
+        cur = self._speed_var.get()
+        new = max(cur - 0.1, 0.3)
+        self._speed_var.set(round(new, 1))
+        self._apply_speed()
 
     # ── Play queue management ────────────────────────────
 
