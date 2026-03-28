@@ -667,6 +667,7 @@ class MusicPlayer(ctk.CTk):
                               command=lambda c=col: self._sort_by_column(c))
         self.tree.pack(side='left', fill='both', expand=True)
         self.tree.tag_configure(self._now_playing_tag, background='#1a3a1a', foreground='#5dff5d')
+        self.tree.tag_configure('search_match', background='#2a2a1a')
         self.tree.bind('<Double-1>', self._on_double)
         self.tree.bind('<<TreeviewSelect>>', self._on_select)
         self.tree.bind('<Button-3>', self._on_right_click)
@@ -1370,6 +1371,16 @@ class MusicPlayer(ctk.CTk):
             matched.sort(key=lambda i: key_fn(self.playlist[i]), reverse=self._sort_reverse)
 
         # Phase 3: insert into treeview
+        def _hl(text, term):
+            """Highlight search term in text with «» markers."""
+            if not term:
+                return text
+            low = text.lower()
+            pos = low.find(term)
+            if pos == -1:
+                return text
+            return text[:pos] + '«' + text[pos:pos+len(term)] + '»' + text[pos+len(term):]
+
         for idx in matched:
             entry = self.playlist[idx]
             title = entry.get('title', entry['basename'])
@@ -1383,11 +1394,21 @@ class MusicPlayer(ctk.CTk):
             first_p = self._format_ts(entry.get('first_played'), relative=False)
             last_p = self._format_ts(entry.get('last_played'), relative=True)
             file_c = self._format_ts(entry.get('file_created'), relative=False)
-            row_tags = (self._now_playing_tag,) if idx == self.current_index and self.is_playing else ()
+            # Highlight matching columns when searching
+            if search_term:
+                title = _hl(title, search_term)
+                comment = _hl(comment, search_term)
+                tags_str = _hl(tags_str, search_term)
+                liked_str = _hl(liked_str, search_term)
+            row_tags = []
+            if idx == self.current_index and self.is_playing:
+                row_tags.append(self._now_playing_tag)
+            if search_term:
+                row_tags.append('search_match')
             self.tree.insert('', 'end',
                              values=(title, rating_str, comment, tags_str, liked_str, disliked_str,
                                      plays, first_p, last_p, file_c),
-                             tags=row_tags)
+                             tags=tuple(row_tags))
             self.display_indices.append(idx)
 
         # Restore selection
