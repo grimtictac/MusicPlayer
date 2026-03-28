@@ -671,16 +671,37 @@ class MusicPlayer(ctk.CTk):
 
         # ── BROWSE PANEL (fills remaining space) ──
         browse = ctk.CTkFrame(main_area, fg_color='#2b2b2b', corner_radius=8)
-        browse.pack(side='left', fill='both', expand=True)
+        browse.pack(side='right', fill='both', expand=True)
 
-        # ── Filter Row 1: Genre + Rating + Liked by ──
+        # ── GENRE LISTBOX (left sidebar) ──
+        genre_panel = ctk.CTkFrame(main_area, width=170, fg_color='#2b2b2b', corner_radius=8)
+        genre_panel.pack(side='left', fill='y', padx=(0, 4))
+        genre_panel.pack_propagate(False)
+
+        genre_header = ctk.CTkFrame(genre_panel, fg_color='transparent')
+        genre_header.pack(fill='x', padx=6, pady=(6, 2))
+        ctk.CTkLabel(genre_header, text='Genre',
+                     font=ctk.CTkFont(size=12, weight='bold')).pack(side='left')
+        ctk.CTkButton(
+            genre_header, text='\u2699', width=24, height=22,
+            font=ctk.CTkFont(size=12), fg_color='transparent',
+            hover_color='#3b3b3b', command=self._open_settings
+        ).pack(side='right')
+
+        self._genre_listbox = tk.Listbox(
+            genre_panel, bg='#2b2b2b', fg='#dce4ee',
+            selectbackground='#1f6aa5', selectforeground='#ffffff',
+            font=('Segoe UI', 10), borderwidth=0, highlightthickness=0,
+            activestyle='none', exportselection=False)
+        self._genre_listbox.pack(fill='both', expand=True, padx=4, pady=(0, 6))
+        self._genre_listbox.bind('<<ListboxSelect>>', self._on_genre_listbox_select)
+
+        # ── Filter Row 1: Rating + Liked by ──
         filter_row1 = ctk.CTkFrame(browse, fg_color='transparent')
         filter_row1.pack(fill='x', padx=8, pady=(8, 2))
-        # Columns: label, dropdown, label, dropdown, label, dropdown, (spacer), reset, gear
-        filter_row1.columnconfigure(1, weight=2)   # genre dropdown
-        filter_row1.columnconfigure(3, weight=1)   # rating dropdown
-        filter_row1.columnconfigure(5, weight=2)   # liked-by dropdown
-        filter_row1.columnconfigure(6, weight=0)   # spacer
+        filter_row1.columnconfigure(1, weight=1)   # rating dropdown
+        filter_row1.columnconfigure(3, weight=2)   # liked-by dropdown
+        filter_row1.columnconfigure(4, weight=0)   # spacer
 
         _dd_style = dict(height=26, font=ctk.CTkFont(size=11),
                          fg_color='#3b3b3b', button_color='#4a4a4a',
@@ -688,41 +709,29 @@ class MusicPlayer(ctk.CTk):
                          dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
                          dropdown_text_color='#dce4ee')
 
-        ctk.CTkLabel(filter_row1, text='Genre', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
-        self._genre_var = tk.StringVar(value='All')
-        self.genre_dropdown = ctk.CTkOptionMenu(
-            filter_row1, variable=self._genre_var,
-            values=['All'], command=self._on_genre_dropdown, **_dd_style)
-        self.genre_dropdown.grid(row=0, column=1, sticky='ew', padx=(0, 10))
-
-        ctk.CTkLabel(filter_row1, text='Rating', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(filter_row1, text='Rating', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
         self._rating_filter_var = tk.StringVar(value='All')
         rating_vals = ['All', '≥ 1', '≥ 2', '≥ 3', '≥ 5', '≥ 10', '≤ -1', '≤ -3', '= 0']
         self._rating_filter_dropdown = ctk.CTkOptionMenu(
             filter_row1, variable=self._rating_filter_var,
             values=rating_vals, command=self._on_rating_filter, **_dd_style)
-        self._rating_filter_dropdown.grid(row=0, column=3, sticky='ew', padx=(0, 10))
+        self._rating_filter_dropdown.grid(row=0, column=1, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row1, text='Liked by', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=4, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(filter_row1, text='Liked by', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
         self._liked_by_var = tk.StringVar(value='All')
         self._liked_by_dropdown = ctk.CTkOptionMenu(
             filter_row1, variable=self._liked_by_var,
             values=['All'], command=self._on_liked_by_filter, **_dd_style)
-        self._liked_by_dropdown.grid(row=0, column=5, sticky='ew', padx=(0, 6))
+        self._liked_by_dropdown.grid(row=0, column=3, sticky='ew', padx=(0, 6))
 
-        # Reset + settings gear
+        # Reset button
         self._btn_reset_filters = ctk.CTkButton(
             filter_row1, text='✕ Reset', width=60, height=24,
             font=ctk.CTkFont(size=10), fg_color='transparent',
             border_width=1, border_color='#555555',
             hover_color='#3b3b3b', text_color='#999999',
             command=self._reset_all_filters)
-        self._btn_reset_filters.grid(row=0, column=7, padx=(4, 2))
-        ctk.CTkButton(
-            filter_row1, text='\u2699', width=28, height=24,
-            font=ctk.CTkFont(size=14), fg_color='transparent',
-            hover_color='#3b3b3b', command=self._open_settings
-        ).grid(row=0, column=8, padx=(0, 0))
+        self._btn_reset_filters.grid(row=0, column=5, padx=(4, 0))
 
         # ── Filter Row 2: First Played + Last Played + File Created + Length ──
         filter_row2 = ctk.CTkFrame(browse, fg_color='transparent')
@@ -877,11 +886,34 @@ class MusicPlayer(ctk.CTk):
             values.append(genre)
             self._genre_label_map[genre] = ('genre', genre)
 
-        self.genre_dropdown.configure(values=values)
-        self._genre_var.set('All')
+        # Populate the genre listbox
+        self._genre_listbox.delete(0, 'end')
+        for v in values:
+            self._genre_listbox.insert('end', v)
+        # Select "All" by default
+        self._genre_listbox.selection_clear(0, 'end')
+        self._genre_listbox.selection_set(0)
+        self._genre_listbox.see(0)
+
+    def _on_genre_listbox_select(self, event=None):
+        """Handle genre listbox selection."""
+        sel = self._genre_listbox.curselection()
+        if not sel:
+            return
+        choice = self._genre_listbox.get(sel[0])
+        kind, name = self._genre_label_map.get(choice, ('all', 'All'))
+        if kind == 'all':
+            self._active_genre = 'All'
+        elif kind == 'group':
+            self._active_genre = name
+        else:
+            self._active_genre = name
+        self._active_tags = set()  # reset tag filter on genre change
+        self._apply_filter()
+        self._build_tag_bar()
 
     def _on_genre_dropdown(self, choice):
-        """Handle genre dropdown selection."""
+        """Handle genre dropdown selection (legacy, kept for compatibility)."""
         kind, name = self._genre_label_map.get(choice, ('all', 'All'))
         if kind == 'all':
             self._active_genre = 'All'
@@ -960,8 +992,11 @@ class MusicPlayer(ctk.CTk):
         self._last_played_var.set('All')
         self._file_created_var.set('All')
         self._length_filter_var.set('All')
-        self._genre_var.set('All')
         self._active_genre = 'All'
+        if hasattr(self, '_genre_listbox'):
+            self._genre_listbox.selection_clear(0, 'end')
+            self._genre_listbox.selection_set(0)
+            self._genre_listbox.see(0)
         self._active_tags = set()
         self._search_var.set('')
         self._apply_filter()
