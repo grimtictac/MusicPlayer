@@ -640,13 +640,38 @@ class MusicPlayer(ctk.CTk):
 
         self._tag_buttons = []
 
-        # ═══ MAIN AREA: Two-panel resizable splitter ═══
-        paned = tk.PanedWindow(self, orient='horizontal', sashwidth=6,
-                               bg='#1a1a2e', sashrelief='flat', borderwidth=0)
-        paned.pack(fill='both', expand=True, padx=6, pady=(10, 4))
+        # ═══ MAIN AREA: Browse + Volume strip ═══
+        main_area = ctk.CTkFrame(self, fg_color='transparent')
+        main_area.pack(fill='both', expand=True, padx=6, pady=(10, 4))
 
-        # ── BROWSE PANEL (left) ──
-        browse = ctk.CTkFrame(paned, fg_color='#2b2b2b', corner_radius=8)
+        # ── VOLUME STRIP (right edge, full height) ──
+        vol_strip = ctk.CTkFrame(main_area, width=50, fg_color='#2b2b2b', corner_radius=8)
+        vol_strip.pack(side='right', fill='y', padx=(4, 0))
+        vol_strip.pack_propagate(False)
+
+        self.btn_mute = ctk.CTkButton(vol_strip, text='\U0001f50a', width=40, height=30,
+                                      font=ctk.CTkFont(size=16), fg_color='transparent',
+                                      command=self._toggle_mute)
+        self.btn_mute.pack(pady=(8, 4))
+
+        self.vol = tk.DoubleVar(value=0.8)
+        self._muted = False
+        self._pre_mute_vol = 0.8
+        self.vol_slider = ctk.CTkSlider(vol_strip, from_=0.0, to=1.0, variable=self.vol,
+                                        orientation='vertical', command=self._on_volume,
+                                        height=200,
+                                        button_color='#00bcd4', button_hover_color='#26c6da',
+                                        progress_color='#00bcd4')
+        self.vol_slider.pack(fill='y', expand=True, padx=6, pady=4)
+
+        self.lbl_vol_pct = ctk.CTkLabel(vol_strip, text='80%', font=ctk.CTkFont(size=10))
+        self.lbl_vol_pct.pack(pady=(4, 8))
+
+        self._on_volume()
+
+        # ── BROWSE PANEL (fills remaining space) ──
+        browse = ctk.CTkFrame(main_area, fg_color='#2b2b2b', corner_radius=8)
+        browse.pack(side='left', fill='both', expand=True)
 
         # ── Filter Row 1: Genre + Rating + Liked by ──
         filter_row1 = ctk.CTkFrame(browse, fg_color='transparent')
@@ -782,52 +807,6 @@ class MusicPlayer(ctk.CTk):
         sb = ctk.CTkScrollbar(tree_frame, command=self.tree.yview)
         sb.pack(side='left', fill='y')
         self.tree.config(yscrollcommand=sb.set)
-
-        paned.add(browse, stretch='always')
-
-        # ── PLAY PANEL (right) ──
-        play_panel = ctk.CTkFrame(paned, fg_color='#2b2b2b', corner_radius=8)
-
-        # Play panel content: volume only (rating moved to top bar)
-        play_content = ctk.CTkFrame(play_panel, fg_color='transparent')
-        play_content.pack(fill='both', expand=True, padx=4, pady=4)
-
-        # ── Volume ──
-        vol_panel = ctk.CTkFrame(play_content, width=60, fg_color='transparent')
-        vol_panel.pack(fill='y', expand=True, padx=(4, 4))
-        vol_panel.pack_propagate(False)
-
-        self.btn_mute = ctk.CTkButton(vol_panel, text='\U0001f50a', width=40, height=30,
-                                      font=ctk.CTkFont(size=16), fg_color='transparent',
-                                      command=self._toggle_mute)
-        self.btn_mute.pack(pady=(8, 4))
-
-        self.vol = tk.DoubleVar(value=0.8)
-        self._muted = False
-        self._pre_mute_vol = 0.8
-        self.vol_slider = ctk.CTkSlider(vol_panel, from_=0.0, to=1.0, variable=self.vol,
-                                        orientation='vertical', command=self._on_volume,
-                                        height=200,
-                                        button_color='#00bcd4', button_hover_color='#26c6da',
-                                        progress_color='#00bcd4')
-        self.vol_slider.pack(fill='y', expand=True, padx=10, pady=4)
-
-        self.lbl_vol_pct = ctk.CTkLabel(vol_panel, text='80%', font=ctk.CTkFont(size=10))
-        self.lbl_vol_pct.pack(pady=(4, 8))
-
-        self._on_volume()
-
-        paned.add(play_panel, stretch='always')
-
-        # Set initial 60/40 split after window is drawn
-        def _set_sash():
-            try:
-                w = paned.winfo_width()
-                if w > 1:
-                    paned.sash_place(0, int(w * 0.6), 0)
-            except Exception:
-                pass
-        self.after(200, _set_sash)
 
     # ── Keyboard shortcuts ───────────────────────────────
 
