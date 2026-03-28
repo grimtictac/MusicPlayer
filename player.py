@@ -115,7 +115,7 @@ class MusicPlayer(ctk.CTk):
         con.execute("""
             CREATE TABLE IF NOT EXISTS tracks (
                 id INTEGER PRIMARY KEY,
-                path TEXT UNIQUE,
+                file_path TEXT UNIQUE,
                 title TEXT,
                 artist TEXT,
                 album TEXT,
@@ -132,6 +132,33 @@ class MusicPlayer(ctk.CTk):
             track_id INTEGER,
             played_at TEXT,
             FOREIGN KEY(track_id) REFERENCES tracks(id)
+        )''')
+        con.execute('''CREATE TABLE IF NOT EXISTS track_tags (
+            id INTEGER PRIMARY KEY,
+            track_id INTEGER,
+            tag TEXT,
+            FOREIGN KEY(track_id) REFERENCES tracks(id),
+            UNIQUE(track_id, tag)
+        )''')
+        con.execute('''CREATE TABLE IF NOT EXISTS track_votes (
+            id INTEGER PRIMARY KEY,
+            track_id INTEGER,
+            vote INTEGER,
+            voter TEXT DEFAULT '',
+            voted_at TEXT,
+            FOREIGN KEY(track_id) REFERENCES tracks(id)
+        )''')
+        con.execute('''CREATE TABLE IF NOT EXISTS genre_groups (
+            id INTEGER PRIMARY KEY,
+            group_name TEXT UNIQUE,
+            sort_order INTEGER DEFAULT 0
+        )''')
+        con.execute('''CREATE TABLE IF NOT EXISTS genre_group_members (
+            id INTEGER PRIMARY KEY,
+            group_id INTEGER,
+            genre TEXT,
+            sort_order INTEGER DEFAULT 0,
+            FOREIGN KEY(group_id) REFERENCES genre_groups(id)
         )''')
         # ...existing code...
         con.commit()
