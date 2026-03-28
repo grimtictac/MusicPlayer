@@ -638,9 +638,10 @@ class MusicPlayer(ctk.CTk):
         self.vol_slider = ctk.CTkSlider(vol_strip, from_=0.0, to=1.0, variable=self.vol,
                                         orientation='vertical', command=self._on_volume,
                                         height=300, width=26,
-                                        button_length=20,
-                                        button_color='#00bcd4', button_hover_color='#26c6da',
-                                        progress_color='#00bcd4')
+                                        button_length=24,
+                                        button_color='#00bcd4', button_hover_color='#80f0ff',
+                                        progress_color='#00bcd4',
+                                        border_color='#00bcd4', border_width=2)
         self.vol_slider.pack(fill='y', expand=True, padx=10, pady=6)
 
         self.lbl_vol_pct = ctk.CTkLabel(vol_strip, text='80%',
@@ -648,6 +649,19 @@ class MusicPlayer(ctk.CTk):
         self.lbl_vol_pct.pack(pady=(4, 12))
 
         self._on_volume()
+
+        # Mouse-wheel scrolling adjusts volume anywhere on the strip
+        def _vol_scroll(event):
+            step = 0.03
+            if event.num == 4 or event.delta > 0:      # scroll up
+                self.vol.set(min(1.0, self.vol.get() + step))
+            elif event.num == 5 or event.delta < 0:     # scroll down
+                self.vol.set(max(0.0, self.vol.get() - step))
+            self._on_volume()
+        for widget in (vol_strip, self.btn_mute, self.vol_slider, self.lbl_vol_pct):
+            widget.bind('<MouseWheel>', _vol_scroll)     # Windows / macOS
+            widget.bind('<Button-4>', _vol_scroll)       # Linux scroll up
+            widget.bind('<Button-5>', _vol_scroll)       # Linux scroll down
 
         # ── CONTENT COLUMN (everything else) ──
         _content = ctk.CTkFrame(_outer, fg_color='transparent')
