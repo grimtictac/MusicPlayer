@@ -2507,7 +2507,7 @@ class MusicPlayer(ctk.CTk):
         menu.add_separator()
         menu.add_command(label='\u270f  Edit Title\u2026',
                          command=lambda: self._context_edit_title(playlist_idx))
-        menu.add_command(label='\u270f  Edit Genre\u2026',
+        menu.add_command(label='\U0001f3b5  Change Genre\u2026',
                          command=lambda: self._context_edit_genre(playlist_idx))
         menu.add_command(label='\u270f  Edit Comment\u2026',
                          command=lambda: self._context_edit_comment(playlist_idx))
@@ -2630,17 +2630,66 @@ class MusicPlayer(ctk.CTk):
     def _context_edit_genre(self, playlist_idx):
         entry = self.playlist[playlist_idx]
         current = entry.get('genre', 'Unknown')
-        new_val = simpledialog.askstring('Edit Genre', 'Genre:', initialvalue=current, parent=self)
-        if new_val is not None and new_val.strip():
-            old_genre = entry.get('genre')
-            entry['genre'] = new_val.strip()
-            self.genres.add(new_val.strip())
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title('Change Genre')
+        dialog.geometry('320x420')
+        dialog.transient(self)
+        dialog.after(100, dialog.grab_set)
+
+        title = entry.get('title', entry['basename'])
+        ctk.CTkLabel(dialog, text='Change Genre',
+                     font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(12, 2))
+        ctk.CTkLabel(dialog, text=title[:50],
+                     font=ctk.CTkFont(size=11), text_color='#888888',
+                     wraplength=280).pack(pady=(0, 8))
+
+        ctk.CTkLabel(dialog, text='Select an existing genre:',
+                     font=ctk.CTkFont(size=11)).pack(anchor='w', padx=16, pady=(0, 2))
+
+        genre_list = ctk.CTkScrollableFrame(dialog, fg_color='#1a1a2e', height=200)
+        genre_list.pack(fill='both', expand=True, padx=16, pady=(0, 8))
+
+        selected_var = tk.StringVar(value=current)
+
+        for genre in sorted(self.genres):
+            is_current = genre == current
+            btn = ctk.CTkButton(genre_list, text=genre, height=28,
+                                font=ctk.CTkFont(size=11),
+                                fg_color='#1f6aa5' if is_current else '#2b2b2b',
+                                hover_color='#1f6aa5',
+                                anchor='w',
+                                command=lambda g=genre: selected_var.set(g))
+            btn.pack(fill='x', pady=1, padx=4)
+
+        ctk.CTkLabel(dialog, text='Or type a new genre:',
+                     font=ctk.CTkFont(size=11)).pack(anchor='w', padx=16, pady=(4, 2))
+        new_entry = ctk.CTkEntry(dialog, height=28, font=ctk.CTkFont(size=12),
+                                  placeholder_text='New genre name…')
+        new_entry.pack(fill='x', padx=16, pady=(0, 8))
+
+        def apply_genre():
+            typed = new_entry.get().strip()
+            new_genre = typed if typed else selected_var.get()
+            if not new_genre:
+                dialog.destroy()
+                return
+            entry['genre'] = new_genre
+            self.genres.add(new_genre)
             con = sqlite3.connect(DB_PATH)
-            con.execute("UPDATE tracks SET genre = ? WHERE file_path = ?", (new_val.strip(), entry['path']))
+            con.execute("UPDATE tracks SET genre = ? WHERE file_path = ?", (new_genre, entry['path']))
             con.commit()
             con.close()
             self._build_genre_list()
             self._apply_filter()
+            dialog.destroy()
+
+        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row.pack(fill='x', padx=16, pady=(0, 12))
+        ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
+                      command=dialog.destroy).pack(side='right', padx=4)
+        ctk.CTkButton(btn_row, text='Apply', fg_color='#1f6aa5',
+                      command=apply_genre).pack(side='right', padx=4)
 
     def _context_edit_comment(self, playlist_idx):
         entry = self.playlist[playlist_idx]
