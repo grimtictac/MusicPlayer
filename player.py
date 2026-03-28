@@ -721,9 +721,10 @@ class MusicPlayer(ctk.CTk):
         tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
         tree_frame.pack(fill='both', expand=True, padx=6, pady=(0, 6))
 
-        # Tag filter bar — multi-row wrapping layout
-        self.tag_bar_frame = ctk.CTkFrame(
-            tree_frame, fg_color='#2b2b2b', corner_radius=6)
+        # Tag filter bar — scrollable multi-row wrapping layout
+        self.tag_bar_frame = ctk.CTkScrollableFrame(
+            tree_frame, fg_color='#2b2b2b', corner_radius=6,
+            height=70, orientation='vertical')
         self.tag_bar_frame.pack(fill='x', pady=(0, 4))
 
         # Search box (below tags)
