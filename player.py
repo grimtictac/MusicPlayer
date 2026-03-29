@@ -2653,9 +2653,52 @@ class MusicPlayer(ctk.CTk):
         if abs(speed - 1.0) > 0.05:
             self._speed_frame.configure(fg_color='#5c2d00', border_width=2, border_color='#ff9800')
             self._speed_label.configure(text_color='#ff9800')
+            self._start_speed_throb()
         else:
             self._speed_frame.configure(fg_color='#2b2b2b', border_width=0, border_color='#2b2b2b')
             self._speed_label.configure(text_color='#dce4ee')
+            self._stop_speed_throb()
+
+    def _start_speed_throb(self):
+        """Start a pulsating throb animation on the speed indicator."""
+        if getattr(self, '_speed_throb_id', None) is not None:
+            return  # already throbbing
+        self._speed_throb_step = 0
+        self._speed_throb_tick()
+
+    def _stop_speed_throb(self):
+        """Stop the speed throb animation."""
+        tid = getattr(self, '_speed_throb_id', None)
+        if tid is not None:
+            self.after_cancel(tid)
+            self._speed_throb_id = None
+
+    def _speed_throb_tick(self):
+        """One tick of the throb animation — oscillates colors."""
+        if abs(self._speed_var.get() - 1.0) < 0.05:
+            self._speed_throb_id = None
+            return
+        step = getattr(self, '_speed_throb_step', 0)
+        # Oscillate between bright and dim using a sine-like 8-step cycle
+        cycle = [
+            ('#5c2d00', '#ff9800'),   # dim
+            ('#6e3500', '#ffad33'),
+            ('#804000', '#ffc266'),
+            ('#924a00', '#ffd699'),   # bright
+            ('#804000', '#ffc266'),
+            ('#6e3500', '#ffad33'),
+            ('#5c2d00', '#ff9800'),   # dim
+            ('#4a2300', '#e68a00'),   # extra dim
+        ]
+        bg, fg = cycle[step % len(cycle)]
+        try:
+            self._speed_frame.configure(fg_color=bg, border_color=fg)
+            self._speed_label.configure(text_color=fg)
+        except Exception:
+            self._speed_throb_id = None
+            return
+        self._speed_throb_step = step + 1
+        self._speed_throb_id = self.after(200, self._speed_throb_tick)
 
     def _speed_up(self):
         cur = self._speed_var.get()
