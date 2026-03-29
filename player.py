@@ -1598,9 +1598,36 @@ class MusicPlayer(ctk.CTk):
         menu.add_separator()
         root_label = f'\U0001f4c1  Library Root: {self._library_root}' if self._library_root else '\U0001f4c1  Set Library Root\u2026'
         menu.add_command(label=root_label, command=self._show_library_root_dialog)
+        menu.add_separator()
+        menu.add_command(label='\U0001f4be  Snapshot DB', command=self._snapshot_db)
+        menu.add_command(label='\U0001f5d1  Drop DB', command=self._drop_db)
         x = self.btn_menu.winfo_rootx()
         y = self.btn_menu.winfo_rooty() + self.btn_menu.winfo_height()
         menu.tk_popup(x, y, 0)
+
+    # ── DB snapshot / drop ───────────────────────────────
+
+    def _snapshot_db(self):
+        """Copy the current DB file with a timestamp-SNAPSHOT suffix."""
+        if not os.path.exists(DB_PATH):
+            messagebox.showinfo('Snapshot DB', 'No database file found.')
+            return
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        snap_path = f'{DB_PATH}.{stamp}-SNAPSHOT'
+        shutil.copy2(DB_PATH, snap_path)
+        messagebox.showinfo('Snapshot DB', f'Saved snapshot:\n{os.path.basename(snap_path)}')
+
+    def _drop_db(self):
+        """Delete the current DB file after confirmation."""
+        if not os.path.exists(DB_PATH):
+            messagebox.showinfo('Drop DB', 'No database file found.')
+            return
+        if not messagebox.askyesno('Drop DB',
+                                   'Delete the database?\n\nThis cannot be undone.\n'
+                                   'The app will close so the DB can be rebuilt on next launch.'):
+            return
+        os.remove(DB_PATH)
+        self.destroy()
 
     # ── Library root ─────────────────────────────────────
 

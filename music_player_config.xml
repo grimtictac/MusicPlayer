@@ -1,5 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <music_player_config>
+  <library_root>/home/shauns/Music/LaptopBakDec25/Dec25Music</library_root>
   <genre_groups>
     <group name="Ballroom">
       <member>Foxtrot, Rhythm</member>
