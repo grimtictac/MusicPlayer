@@ -3122,20 +3122,49 @@ class MusicPlayer(ctk.CTk):
             playlist_idx = self.display_indices[idx]
         except Exception:
             return
-        self._last_action = 'switching'
-        self.vlc_player.stop()
-        self.current_index = playlist_idx
-        loaded = self._load(playlist_idx)
-        if loaded:
-            self.vlc_player.play()
-            self.is_playing = True
-            self.is_paused = False
-            self._last_action = 'playing'
-            self._play_started_at = time.time()
-            self._playback_start_time = time.time()
-            self._play_recorded = False
-            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
-            self._update_now_playing()
+        entry = self.playlist[playlist_idx]
+        title = entry.get('title', entry['basename'])
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title('Play Track')
+        dialog.geometry('360x160')
+        dialog.transient(self)
+        dialog.after(100, dialog.grab_set)
+
+        ctk.CTkLabel(dialog, text=title[:60],
+                     font=ctk.CTkFont(size=13, weight='bold'),
+                     wraplength=320).pack(pady=(16, 12))
+
+        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row.pack(fill='x', padx=20, pady=(0, 16))
+
+        def play_now():
+            dialog.destroy()
+            self._last_action = 'switching'
+            self.vlc_player.stop()
+            self.current_index = playlist_idx
+            loaded = self._load(playlist_idx)
+            if loaded:
+                self.vlc_player.play()
+                self.is_playing = True
+                self.is_paused = False
+                self._last_action = 'playing'
+                self._play_started_at = time.time()
+                self._playback_start_time = time.time()
+                self._play_recorded = False
+                self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
+                self._update_now_playing()
+
+        def play_next():
+            dialog.destroy()
+            self._insert_in_queue(playlist_idx, 0)
+
+        ctk.CTkButton(btn_row, text='\u25b6  Play Now', fg_color='#1f6aa5',
+                      command=play_now).pack(side='left', padx=4, expand=True, fill='x')
+        ctk.CTkButton(btn_row, text='\u23ed  Play Next', fg_color='#e67e22',
+                      command=play_next).pack(side='left', padx=4, expand=True, fill='x')
+        ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
+                      command=dialog.destroy).pack(side='left', padx=4, expand=True, fill='x')
 
     # ── Poll ─────────────────────────────────────────────
 
