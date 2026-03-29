@@ -310,6 +310,16 @@ class MusicPlayer(ctk.CTk):
                 value TEXT
             )
         """)
+
+        # Audit trail
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY,
+                timestamp TEXT,
+                action TEXT,
+                detail TEXT
+            )
+        """)
         con.commit()
 
         # One-time backfill
@@ -457,6 +467,65 @@ class MusicPlayer(ctk.CTk):
 
     def _save_length_filter_durations(self):
         self._save_config_to_xml()
+
+    # ── Audit trail ──────────────────────────────────────
+
+    def _log_action(self, action, detail=''):
+        """Record a user action in the audit_log table."""
+        now = datetime.now(tz=timezone.utc).isoformat()
+        try:
+            con = sqlite3.connect(DB_PATH)
+            con.execute("INSERT INTO audit_log (timestamp, action, detail) VALUES (?, ?, ?)",
+                        (now, action, detail))
+            con.commit()
+            con.close()
+        except Exception:
+            pass  # never let audit logging break the app
+
+    def _show_audit_log(self):
+        """Show the audit log in a dialog."""
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        cur.execute("SELECT timestamp, action, detail FROM audit_log ORDER BY id DESC LIMIT 500")
+        rows = cur.fetchall()
+        con.close()
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title('Audit Log')
+        dialog.geometry('700x500')
+        dialog.transient(self)
+        dialog.after(100, dialog.grab_set)
+
+        ctk.CTkLabel(dialog, text='Audit Log — Recent Actions',
+                     font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(10, 6))
+
+        tree_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        tree_frame.pack(fill='both', expand=True, padx=10, pady=(0, 10))
+
+        cols = ('Time', 'Action', 'Detail')
+        tree = ttk.Treeview(tree_frame, columns=cols, show='headings', height=20)
+        tree.heading('Time', text='Time')
+        tree.heading('Action', text='Action')
+        tree.heading('Detail', text='Detail')
+        tree.column('Time', width=150, anchor='w')
+        tree.column('Action', width=150, anchor='w')
+        tree.column('Detail', width=350, anchor='w')
+        tree.pack(side='left', fill='both', expand=True)
+
+        sb = ctk.CTkScrollbar(tree_frame, command=tree.yview)
+        sb.pack(side='right', fill='y')
+        tree.config(yscrollcommand=sb.set)
+
+        for ts, action, detail in rows:
+            try:
+                dt = datetime.fromisoformat(ts).astimezone(tz=None)
+                display_ts = dt.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                display_ts = str(ts)[:19]
+            tree.insert('', 'end', values=(display_ts, action, detail or ''))
+
+        ctk.CTkButton(dialog, text='Close', command=dialog.destroy,
+                      width=100).pack(pady=(0, 10))
 
     def _load_tracks_from_db(self):
         con = sqlite3.connect(DB_PATH)
@@ -680,6 +749,8 @@ class MusicPlayer(ctk.CTk):
                     (track_id, vote, voter, now))
         con.commit()
         con.close()
+        vote_label = 'like' if vote > 0 else 'dislike'
+        self._log_action(f'vote_{vote_label}', f'{entry["title"]} (voter: {voter or "anonymous"})')
         entry['rating'] = entry.get('rating', 0) + vote
         if voter:
             self._all_voters.add(voter)
@@ -1293,6 +1364,7 @@ class MusicPlayer(ctk.CTk):
         self._play_started_at = time.time()
         self._playback_start_time = time.time()
         self._play_recorded = False
+        self._log_action('prev_track', self.playlist[prev_idx]['title'] if prev_idx < len(self.playlist) else '')
         self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
         self._update_now_playing()
 
@@ -1305,6 +1377,8 @@ class MusicPlayer(ctk.CTk):
         menu.add_separator()
         fs_label = 'Exit Fullscreen' if self.attributes('-fullscreen') else 'Fullscreen (F11)'
         menu.add_command(label=fs_label, command=self._toggle_fullscreen)
+        menu.add_separator()
+        menu.add_command(label='\U0001f4cb  View Audit Log', command=self._show_audit_log)
         x = self.btn_menu.winfo_rootx()
         y = self.btn_menu.winfo_rooty() + self.btn_menu.winfo_height()
         try:
@@ -2217,6 +2291,8 @@ class MusicPlayer(ctk.CTk):
     def add_files(self):
         files = filedialog.askopenfilenames(title='Select audio files',
                                             filetypes=[('Audio', '*.mp3 *.wav *.ogg *.flac'), ('All files', '*.*')])
+        if files:
+            self._log_action('add_files', f'{len(files)} files')
         for f in files:
             self._add_path(f)
         if self.current_index is None and self.playlist:
@@ -2229,6 +2305,7 @@ class MusicPlayer(ctk.CTk):
         folder = filedialog.askdirectory(title='Select folder')
         if not folder:
             return
+        self._log_action('add_folder', folder)
         exts = ('.mp3', '.wav', '.ogg', '.flac')
 
         self.lbl_now_playing.configure(text='\u266b  Scanning folder\u2026')
@@ -2419,6 +2496,7 @@ class MusicPlayer(ctk.CTk):
             self.is_paused = True
             self.is_playing = False
             self._last_action = 'paused'
+            self._log_action('pause', self.playlist[self.current_index]['title'] if self.current_index is not None else '')
             self.btn_play.configure(text='\u25b6', fg_color='#1f6aa5', hover_color='#1a5a8a')
             self._update_now_playing('Paused')
             return
@@ -2429,6 +2507,7 @@ class MusicPlayer(ctk.CTk):
             self.is_playing = True
             self._last_action = 'playing'
             self._play_started_at = time.time()
+            self._log_action('resume', self.playlist[self.current_index]['title'] if self.current_index is not None else '')
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
             return
@@ -2452,12 +2531,14 @@ class MusicPlayer(ctk.CTk):
             self._play_started_at = time.time()
             self._playback_start_time = time.time()
             self._play_recorded = False
+            self._log_action('play', self.playlist[self.current_index]['title'] if self.current_index is not None else '')
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
         except Exception as e:
             messagebox.showerror('Playback error', str(e))
 
     def stop(self):
+        self._log_action('stop', self.playlist[self.current_index]['title'] if self.current_index is not None else '')
         self.vlc_player.stop()
         self.is_playing = False
         self.is_paused = False
@@ -2494,6 +2575,7 @@ class MusicPlayer(ctk.CTk):
         self._play_started_at = time.time()
         self._playback_start_time = time.time()
         self._play_recorded = False
+        self._log_action('next_track', self.playlist[nxt]['title'] if nxt < len(self.playlist) else '')
         self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
         self._update_now_playing()
 
@@ -2562,17 +2644,20 @@ class MusicPlayer(ctk.CTk):
         cur = self._speed_var.get()
         new = min(cur + 0.1, 3.0)
         self._speed_var.set(round(new, 1))
+        self._log_action('speed_change', f'{new:.1f}×')
         self._apply_speed()
 
     def _speed_down(self):
         cur = self._speed_var.get()
         new = max(cur - 0.1, 0.3)
         self._speed_var.set(round(new, 1))
+        self._log_action('speed_change', f'{new:.1f}×')
         self._apply_speed()
 
     def _speed_reset(self):
         """Reset playback speed to 1.0×."""
         self._speed_var.set(1.0)
+        self._log_action('speed_reset', '1.0×')
         self._apply_speed()
 
     # ── Play queue management ────────────────────────────
@@ -2623,6 +2708,7 @@ class MusicPlayer(ctk.CTk):
 
     def _clear_queue(self):
         """Clear the entire play queue."""
+        self._log_action('clear_queue', f'{len(self._play_queue)} items')
         self._play_queue.clear()
         self._refresh_queue_listbox()
 
@@ -3043,6 +3129,7 @@ class MusicPlayer(ctk.CTk):
             self._play_started_at = time.time()
             self._playback_start_time = time.time()
             self._play_recorded = False
+            self._log_action('context_play', self.playlist[playlist_idx]['title'])
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
 
@@ -3110,6 +3197,7 @@ class MusicPlayer(ctk.CTk):
         current = entry.get('title', entry['basename'])
         new_val = simpledialog.askstring('Edit Title', 'Title:', initialvalue=current, parent=self)
         if new_val is not None and new_val.strip():
+            self._log_action('edit_title', f'{current} → {new_val.strip()}')
             entry['title'] = new_val.strip()
             con = sqlite3.connect(DB_PATH)
             con.execute("UPDATE tracks SET title = ? WHERE file_path = ?", (new_val.strip(), entry['path']))
@@ -3120,6 +3208,7 @@ class MusicPlayer(ctk.CTk):
     def _context_set_genre(self, playlist_idx, new_genre):
         """Quick-set genre from the submenu without opening a dialog."""
         entry = self.playlist[playlist_idx]
+        self._log_action('set_genre', f'{entry["title"]}: {entry.get("genre","Unknown")} → {new_genre}')
         entry['genre'] = new_genre
         self.genres.add(new_genre)
         con = sqlite3.connect(DB_PATH)
@@ -3205,6 +3294,7 @@ class MusicPlayer(ctk.CTk):
         current = entry.get('comment', '')
         new_val = simpledialog.askstring('Edit Comment', 'Comment:', initialvalue=current, parent=self)
         if new_val is not None:
+            self._log_action('edit_comment', f'{entry["title"]}: {new_val.strip()[:60]}')
             entry['comment'] = new_val.strip()
             con = sqlite3.connect(DB_PATH)
             con.execute("UPDATE tracks SET comment = ? WHERE file_path = ?", (new_val.strip(), entry['path']))
@@ -3213,6 +3303,9 @@ class MusicPlayer(ctk.CTk):
             self._update_single_row(playlist_idx)
 
     def _context_toggle_tag(self, playlist_idx, tag, currently_applied):
+        entry = self.playlist[playlist_idx]
+        action = 'remove_tag' if currently_applied else 'add_tag'
+        self._log_action(action, f'{entry["title"]}: {tag}')
         if currently_applied:
             self._remove_tag_from_track(playlist_idx, tag)
         else:
@@ -3227,6 +3320,7 @@ class MusicPlayer(ctk.CTk):
         title = entry.get('title', entry['basename'])
         if not messagebox.askyesno('Remove Track', f'Remove "{title}" from the library?\n\n(File will not be deleted)'):
             return
+        self._log_action('remove_track', title)
         path = entry['path']
         if self.current_index == playlist_idx:
             self.stop()
@@ -3306,6 +3400,7 @@ class MusicPlayer(ctk.CTk):
             self._play_started_at = time.time()
             self._playback_start_time = time.time()
             self._play_recorded = False
+            self._log_action('play_now', self.playlist[playlist_idx]['title'])
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
         # Disable Play Now button after clicking it
@@ -3324,6 +3419,7 @@ class MusicPlayer(ctk.CTk):
         if pos is None or pos >= len(self.display_indices):
             return
         playlist_idx = self.display_indices[pos]
+        self._log_action('play_next', self.playlist[playlist_idx]['title'])
         self._insert_in_queue(playlist_idx, 0)
         entry = self.playlist[playlist_idx]
         title = entry.get('title', entry['basename'])
