@@ -658,7 +658,8 @@ class MusicPlayer(ctk.CTk):
         self.lbl_now_playing.configure(text=f'\u266b  {len(self.playlist)} tracks loaded')
 
     def _ensure_track_in_db(self, path, title='', genre='Unknown', comment='', length=None, artist='', album=''):
-        con = sqlite3.connect(DB_PATH)
+        shared = getattr(self, '_shared_db', None)
+        con = shared or sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute("SELECT play_count, first_played, last_played, file_created, length FROM tracks WHERE file_path = ?", (path,))
         row = cur.fetchone()
@@ -672,15 +673,18 @@ class MusicPlayer(ctk.CTk):
                 (path, title, file_created, genre, comment, length, artist, album)
             )
             con.commit()
-            con.close()
+            if not shared:
+                con.close()
             return (0, None, None, file_created, length)
         # If length was not stored yet, update it
         if row[4] is None and length is not None:
             cur.execute("UPDATE tracks SET length = ? WHERE file_path = ?", (length, path))
             con.commit()
-            con.close()
+            if not shared:
+                con.close()
             return (row[0], row[1], row[2], row[3], length)
-        con.close()
+        if not shared:
+            con.close()
         return row
 
     @perf.track
@@ -2573,6 +2577,7 @@ class MusicPlayer(ctk.CTk):
         self.lbl_load.pack(side='right', padx=4, pady=12)
 
         added = 0
+        self._shared_db = sqlite3.connect(DB_PATH)
         for i, path in enumerate(audio_files, 1):
             if self._add_path(path):
                 added += 1
@@ -2580,6 +2585,8 @@ class MusicPlayer(ctk.CTk):
             self.lbl_load.configure(text=f'{i}/{total}')
             if i % 25 == 0 or i == total:
                 self.update_idletasks()
+        self._shared_db.close()
+        self._shared_db = None
 
         self.load_progress.pack_forget()
         self.lbl_load.pack_forget()
