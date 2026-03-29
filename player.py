@@ -195,6 +195,7 @@ class MusicPlayer(ctk.CTk):
         # Genre groups: {group_name: [genre1, genre2, ...]}
         self._genre_groups = {}
         self._all_tags = set()
+        self._tag_rows = {}  # tag_name → row number (from XML)
         self._all_voters = set()  # known voter names
 
         # Default length filter durations (in seconds) — configurable in settings
@@ -439,13 +440,16 @@ class MusicPlayer(ctk.CTk):
                 durations.append((label, lo, hi))
             if durations:
                 self._length_filter_durations = durations
-        # Tags (static definitions)
+        # Tags (static definitions with optional row assignment)
         tags_el = root.find('tags')
         if tags_el is not None:
             for tag_el in tags_el.findall('tag'):
                 name = tag_el.get('name', '').strip().lower()
                 if name:
                     self._all_tags.add(name)
+                    row = tag_el.get('row')
+                    if row is not None:
+                        self._tag_rows[name] = int(row)
         # Playlists
         playlists_el = root.find('playlists')
         if playlists_el is not None:
@@ -474,10 +478,13 @@ class MusicPlayer(ctk.CTk):
             if hi is not None:
                 attrs['hi'] = str(hi)
             ET.SubElement(durations_el, 'duration', **attrs)
-        # Tags (static definitions)
+        # Tags (static definitions with row assignments)
         tags_el = ET.SubElement(root, 'tags')
         for tag in sorted(self._all_tags):
-            ET.SubElement(tags_el, 'tag', name=tag)
+            attrs = {'name': tag}
+            if tag in self._tag_rows:
+                attrs['row'] = str(self._tag_rows[tag])
+            ET.SubElement(tags_el, 'tag', **attrs)
         # Playlists
         playlists_el = ET.SubElement(root, 'playlists')
         for name, paths in self._playlists.items():
@@ -1102,8 +1109,9 @@ class MusicPlayer(ctk.CTk):
 
         # Horizontal PanedWindow: left sidebar | browse | queue/log strip
         self._main_paned = tk.PanedWindow(main_area, orient='horizontal',
-                                           bg='#1e1e2e', sashwidth=5, sashrelief='flat',
-                                           opaqueresize=True, borderwidth=0)
+                                           bg='#333333', sashwidth=10, sashrelief='raised',
+                                           opaqueresize=True, borderwidth=0,
+                                           sashpad=2)
         self._main_paned.pack(fill='both', expand=True)
 
         # ── LEFT SIDEBAR (genre + playlist panels) ──
@@ -1129,8 +1137,9 @@ class MusicPlayer(ctk.CTk):
 
         # Vertical PanedWindow inside right_container: queue on top, play log on bottom
         self._right_paned = tk.PanedWindow(right_container, orient='vertical',
-                                            bg='#1e1e2e', sashwidth=4, sashrelief='flat',
-                                            opaqueresize=True, borderwidth=0)
+                                            bg='#333333', sashwidth=10, sashrelief='raised',
+                                            opaqueresize=True, borderwidth=0,
+                                            sashpad=2)
         self._right_paned.pack(fill='both', expand=True)
 
         # ── PLAY QUEUE PANEL (top half) ──
@@ -1193,25 +1202,9 @@ class MusicPlayer(ctk.CTk):
         log_tree_frame = ctk.CTkFrame(play_log_panel, fg_color='transparent')
         log_tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 6))
 
-        style.configure('PlayLog.Treeview',
-                        background='#1e2a1e',
-                        foreground='#c8e6c9',
-                        fieldbackground='#1e2a1e',
-                        borderwidth=0,
-                        rowheight=22,
-                        font=('Segoe UI', 9))
-        style.configure('PlayLog.Treeview.Heading',
-                        background='#2d4a2d',
-                        foreground='#c8e6c9',
-                        font=('Segoe UI', 9, 'bold'),
-                        borderwidth=0)
-        style.map('PlayLog.Treeview',
-                  background=[('selected', '#2e7d32')],
-                  foreground=[('selected', '#ffffff')])
-
         self._play_log_tree = ttk.Treeview(
             log_tree_frame, columns=('Title', 'Genre'), show='tree headings',
-            height=6, style='PlayLog.Treeview')
+            height=6)
         self._play_log_tree.heading('#0', text='Date', anchor='w')
         self._play_log_tree.heading('Title', text='Title')
         self._play_log_tree.heading('Genre', text='Genre')
@@ -1219,11 +1212,15 @@ class MusicPlayer(ctk.CTk):
         self._play_log_tree.column('Title', width=120, anchor='w')
         self._play_log_tree.column('Genre', width=70, anchor='w')
         self._play_log_tree.pack(side='left', fill='both', expand=True)
-        self._play_log_tree.bind('<Button-3>', self._on_play_log_right_click)
+        self._play_log_tree.bind('<Double-1>', self._on_play_log_double_click)
 
-        log_sb = ctk.CTkScrollbar(log_tree_frame, command=self._play_log_tree.yview)
-        log_sb.pack(side='right', fill='y')
-        self._play_log_tree.config(yscrollcommand=log_sb.set)
+        log_vsb = ctk.CTkScrollbar(log_tree_frame, command=self._play_log_tree.yview)
+        log_vsb.pack(side='right', fill='y')
+        self._play_log_tree.config(yscrollcommand=log_vsb.set)
+
+        log_hsb = ttk.Scrollbar(play_log_panel, orient='horizontal', command=self._play_log_tree.xview)
+        log_hsb.pack(fill='x', padx=4, pady=(0, 2))
+        self._play_log_tree.config(xscrollcommand=log_hsb.set)
 
         # Add panels to the vertical PanedWindow (queue | play log)
         self._right_paned.add(queue_panel, minsize=100, stretch='always')
@@ -1279,12 +1276,18 @@ class MusicPlayer(ctk.CTk):
         self._playlist_listbox.bind('<<ListboxSelect>>', self._on_playlist_select)
         self._playlist_listbox.bind('<Button-3>', self._on_playlist_right_click)
 
-        # ── Filter Row 1: Rating + Liked by ──
-        self._filter_row1 = ctk.CTkFrame(browse, fg_color='transparent')
-        self._filter_row1.pack(fill='x', padx=6, pady=(4, 1))
+        # ── Filter area: two rows of dropdowns + full-height Reset button ──
+        self._filter_container = ctk.CTkFrame(browse, fg_color='transparent')
+        self._filter_container.pack(fill='x', padx=6, pady=(4, 2))
+
+        # Left side: the two filter rows stacked
+        filter_left = ctk.CTkFrame(self._filter_container, fg_color='transparent')
+        filter_left.pack(side='left', fill='both', expand=True)
+
+        self._filter_row1 = ctk.CTkFrame(filter_left, fg_color='transparent')
+        self._filter_row1.pack(fill='x', pady=(0, 1))
         self._filter_row1.columnconfigure(1, weight=1)   # rating dropdown
         self._filter_row1.columnconfigure(3, weight=2)   # liked-by dropdown
-        self._filter_row1.columnconfigure(4, weight=0)   # spacer
 
         _dd_style = dict(height=24, font=ctk.CTkFont(size=10),
                          fg_color='#3b3b3b', button_color='#4a4a4a',
@@ -1292,7 +1295,8 @@ class MusicPlayer(ctk.CTk):
                          dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
                          dropdown_text_color='#dce4ee')
 
-        ctk.CTkLabel(self._filter_row1, text='Rating', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
+        self._lbl_rating = ctk.CTkLabel(self._filter_row1, text='Rating', font=ctk.CTkFont(size=10, weight='bold'))
+        self._lbl_rating.grid(row=0, column=0, sticky='w', padx=(0, 4))
         self._rating_filter_var = tk.StringVar(value='All')
         rating_vals = ['All', '≥ 1', '≥ 2', '≥ 3', '≥ 5', '≥ 10', '≤ -1', '≤ -3', '= 0']
         self._rating_filter_dropdown = ctk.CTkOptionMenu(
@@ -1300,57 +1304,61 @@ class MusicPlayer(ctk.CTk):
             values=rating_vals, command=self._on_rating_filter, **_dd_style)
         self._rating_filter_dropdown.grid(row=0, column=1, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(self._filter_row1, text='Liked by', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
+        self._lbl_liked_by = ctk.CTkLabel(self._filter_row1, text='Liked by', font=ctk.CTkFont(size=10, weight='bold'))
+        self._lbl_liked_by.grid(row=0, column=2, sticky='w', padx=(0, 4))
         self._liked_by_var = tk.StringVar(value='All')
         self._liked_by_dropdown = ctk.CTkOptionMenu(
             self._filter_row1, variable=self._liked_by_var,
             values=['All'], command=self._on_liked_by_filter, **_dd_style)
         self._liked_by_dropdown.grid(row=0, column=3, sticky='ew', padx=(0, 6))
 
-        # Reset button
-        self._btn_reset_filters = ctk.CTkButton(
-            self._filter_row1, text='✕ Reset', width=60, height=24,
-            font=ctk.CTkFont(size=10), fg_color='transparent',
-            border_width=1, border_color='#555555',
-            hover_color='#3b3b3b', text_color='#999999',
-            command=self._reset_all_filters)
-        self._btn_reset_filters.grid(row=0, column=5, padx=(4, 0))
-
-        # ── Filter Row 2: First Played + Last Played + File Created + Length ──
-        self._filter_row2 = ctk.CTkFrame(browse, fg_color='transparent')
-        self._filter_row2.pack(fill='x', padx=6, pady=(0, 2))
+        self._filter_row2 = ctk.CTkFrame(filter_left, fg_color='transparent')
+        self._filter_row2.pack(fill='x', pady=(0, 0))
         self._filter_row2.columnconfigure(1, weight=1)
         self._filter_row2.columnconfigure(3, weight=1)
         self._filter_row2.columnconfigure(5, weight=1)
         self._filter_row2.columnconfigure(7, weight=1)
 
-        ctk.CTkLabel(self._filter_row2, text='First Played', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
+        self._lbl_first_played = ctk.CTkLabel(self._filter_row2, text='First Played', font=ctk.CTkFont(size=10, weight='bold'))
+        self._lbl_first_played.grid(row=0, column=0, sticky='w', padx=(0, 4))
         self._first_played_var = tk.StringVar(value='All')
         self._first_played_dropdown = ctk.CTkOptionMenu(
             self._filter_row2, variable=self._first_played_var,
             values=['All', 'Today', 'This Week', 'This Month'], command=self._on_first_played_filter, **_dd_style)
         self._first_played_dropdown.grid(row=0, column=1, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(self._filter_row2, text='Last Played', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
+        self._lbl_last_played = ctk.CTkLabel(self._filter_row2, text='Last Played', font=ctk.CTkFont(size=10, weight='bold'))
+        self._lbl_last_played.grid(row=0, column=2, sticky='w', padx=(0, 4))
         self._last_played_var = tk.StringVar(value='All')
         self._last_played_dropdown = ctk.CTkOptionMenu(
             self._filter_row2, variable=self._last_played_var,
             values=['All', 'Today', 'This Week', 'This Month'], command=self._on_last_played_filter, **_dd_style)
         self._last_played_dropdown.grid(row=0, column=3, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(self._filter_row2, text='File Created', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=4, sticky='w', padx=(0, 4))
+        self._lbl_file_created = ctk.CTkLabel(self._filter_row2, text='File Created', font=ctk.CTkFont(size=10, weight='bold'))
+        self._lbl_file_created.grid(row=0, column=4, sticky='w', padx=(0, 4))
         self._file_created_var = tk.StringVar(value='All')
         self._file_created_dropdown = ctk.CTkOptionMenu(
             self._filter_row2, variable=self._file_created_var,
             values=['All', 'Today', 'This Week', 'This Month'], command=self._on_file_created_filter, **_dd_style)
         self._file_created_dropdown.grid(row=0, column=5, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(self._filter_row2, text='Length', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=6, sticky='w', padx=(0, 4))
+        self._lbl_length = ctk.CTkLabel(self._filter_row2, text='Length', font=ctk.CTkFont(size=10, weight='bold'))
+        self._lbl_length.grid(row=0, column=6, sticky='w', padx=(0, 4))
         self._length_filter_var = tk.StringVar(value='All')
         self._length_filter_dropdown = ctk.CTkOptionMenu(
             self._filter_row2, variable=self._length_filter_var,
             values=self._get_length_filter_values(), command=self._on_length_filter, **_dd_style)
         self._length_filter_dropdown.grid(row=0, column=7, sticky='ew')
+
+        # Reset button — full height, spans both rows
+        self._btn_reset_filters = ctk.CTkButton(
+            self._filter_container, text='✕\nReset', width=50,
+            font=ctk.CTkFont(size=10), fg_color='transparent',
+            border_width=1, border_color='#555555',
+            hover_color='#3b3b3b', text_color='#999999',
+            command=self._reset_all_filters)
+        self._btn_reset_filters.pack(side='right', fill='y', padx=(4, 0))
 
         # Track list section
         self._tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
@@ -1385,11 +1393,12 @@ class MusicPlayer(ctk.CTk):
         self._perf_text = ''
         def _perf_ui_update(method_name, ms):
             short = method_name.split('.')[-1] if '.' in method_name else method_name
-            self._perf_text = f'  ⏱ {short}: {ms:.0f}ms'
-            # Append perf info to the existing track count text
-            cur = self._track_count_lbl.cget('text')
-            base = cur.split('  ⏱')[0]  # strip old perf suffix
-            self._track_count_lbl.configure(text=base + self._perf_text)
+            # Skip poll-related methods from the perf status display
+            if 'poll' in short.lower():
+                return
+            self._perf_text = f'⏱ {short}: {ms:.0f}ms'
+            if hasattr(self, '_perf_status_lbl'):
+                self._perf_status_lbl.configure(text=self._perf_text)
         perf._ui_callback = _perf_ui_update
 
         self._all_columns = ('Title', 'Artist', 'Album', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
@@ -1422,6 +1431,17 @@ class MusicPlayer(ctk.CTk):
         sb = ctk.CTkScrollbar(tree_frame, command=self.tree.yview)
         sb.pack(side='left', fill='y')
         self.tree.config(yscrollcommand=sb.set)
+
+        # Horizontal scrollbar for track listing
+        tree_hsb = ttk.Scrollbar(tree_frame, orient='horizontal', command=self.tree.xview)
+        tree_hsb.pack(side='bottom', fill='x')
+        self.tree.config(xscrollcommand=tree_hsb.set)
+
+        # ── Performance status bar (below track listing) ──
+        self._perf_status_lbl = ctk.CTkLabel(tree_frame, text='',
+                                              font=ctk.CTkFont(size=9),
+                                              text_color='#666666', anchor='w')
+        self._perf_status_lbl.pack(fill='x', pady=(0, 0))
 
         # ── Tooltips for all buttons ──
         _add_tooltip(self.btn_mute, 'Mute / Unmute')
@@ -1503,10 +1523,7 @@ class MusicPlayer(ctk.CTk):
         menu.add_command(label='\U0001f4cb  View Audit Log', command=self._show_audit_log)
         x = self.btn_menu.winfo_rootx()
         y = self.btn_menu.winfo_rooty() + self.btn_menu.winfo_height()
-        try:
-            menu.tk_popup(x, y)
-        finally:
-            menu.grab_release()
+        menu.tk_popup(x, y, 0)
 
     # ── Genre dropdown ─────────────────────────────────
 
@@ -1552,7 +1569,7 @@ class MusicPlayer(ctk.CTk):
             self._active_genre = name
         else:
             self._active_genre = name
-        self._active_tags = set()  # reset tag filter on genre change
+        # Do NOT reset tag filters on genre change — preserve user's tag selection
         self._apply_filter()
         self._update_tag_highlights()
 
@@ -1576,26 +1593,32 @@ class MusicPlayer(ctk.CTk):
             val = int(parts[1])
             self._rating_threshold = (op, val)
         self._apply_filter()
+        self._update_filter_highlights()
 
     def _on_liked_by_filter(self, choice):
         self._liked_by_filter = None if choice == 'All' else choice
         self._apply_filter()
+        self._update_filter_highlights()
 
     def _on_first_played_filter(self, choice):
         self._first_played_var.set(choice)
         self._apply_filter()
+        self._update_filter_highlights()
 
     def _on_last_played_filter(self, choice):
         self._last_played_var.set(choice)
         self._apply_filter()
+        self._update_filter_highlights()
 
     def _on_file_created_filter(self, choice):
         self._file_created_var.set(choice)
         self._apply_filter()
+        self._update_filter_highlights()
 
     def _on_length_filter(self, choice):
         self._length_filter_var.set(choice)
         self._apply_filter()
+        self._update_filter_highlights()
 
     def _get_length_filter_values(self):
         """Return dropdown values list from the configurable length filter durations."""
@@ -1626,6 +1649,42 @@ class MusicPlayer(ctk.CTk):
         self._search_var.set('')
         self._apply_filter()
         self._update_tag_highlights()
+        self._update_filter_highlights()
+
+    def _update_filter_highlights(self):
+        """Highlight filter dropdowns that are not set to 'All'."""
+        active_color = '#1f6aa5'   # blue tint when filter is active
+        default_color = '#3b3b3b'  # normal background
+        default_btn = '#4a4a4a'    # normal button color
+        active_btn = '#174e7a'     # darker blue for the arrow button
+        pairs = [
+            (self._rating_filter_var, '_rating_filter_dropdown'),
+            (self._liked_by_var, '_liked_by_dropdown'),
+            (self._first_played_var, '_first_played_dropdown'),
+            (self._last_played_var, '_last_played_dropdown'),
+            (self._file_created_var, '_file_created_dropdown'),
+            (self._length_filter_var, '_length_filter_dropdown'),
+        ]
+        any_active = False
+        for var, attr in pairs:
+            dd = getattr(self, attr, None)
+            if dd is None:
+                continue
+            if var.get() != 'All':
+                any_active = True
+                dd.configure(fg_color=active_color, button_color=active_btn)
+            else:
+                dd.configure(fg_color=default_color, button_color=default_btn)
+        # Highlight reset button when any filter is active
+        if hasattr(self, '_btn_reset_filters'):
+            if any_active:
+                self._btn_reset_filters.configure(
+                    fg_color='#8b0000', border_color='#ff4444',
+                    text_color='#ff4444', hover_color='#a52a2a')
+            else:
+                self._btn_reset_filters.configure(
+                    fg_color='transparent', border_color='#555555',
+                    text_color='#999999', hover_color='#3b3b3b')
 
     def _rebuild_liked_by_dropdown(self):
         """Rebuild the liked-by dropdown with current voter names."""
@@ -1640,8 +1699,8 @@ class MusicPlayer(ctk.CTk):
 
     @perf.track
     def _build_tag_bar(self):
-        """Build tag buttons from the static _all_tags set. All defined tags
-        are always shown regardless of which tracks are currently displayed."""
+        """Build tag buttons from the static _all_tags set. Uses row
+        assignments from XML config; tags without a row go on the last row."""
         all_tags = self._all_tags
 
         # If the tag set hasn't changed, just update highlights
@@ -1661,39 +1720,52 @@ class MusicPlayer(ctk.CTk):
             self._tag_bar_visible = False
             return
 
-        n_tags = len(all_tags) + 1  # +1 for ALL button
-        max_cols = 8
-        n_rows = (n_tags + max_cols - 1) // max_cols
-        bar_h = min(n_rows * 32 + 8, 70)  # 32px per row, capped at 70
+        # Group tags by row from XML config
+        rows_dict = {}  # row_num → [tag_name, ...]
+        max_row = 0
+        for tag in sorted(all_tags):
+            r = self._tag_rows.get(tag, 99)  # unassigned tags go to row 99
+            rows_dict.setdefault(r, []).append(tag)
+            if r != 99 and r > max_row:
+                max_row = r
+        # Remap row 99 to max_row + 1 if it exists
+        if 99 in rows_dict:
+            rows_dict[max_row + 1] = rows_dict.pop(99)
+
+        n_rows = len(rows_dict)
+        bar_h = min(n_rows * 30 + 8, 100)
         self._tag_bar_wrapper.configure(height=bar_h)
         self._tag_bar_visible = True
 
-        all_active = not self._active_tags  # empty set means "All"
-        btn_all = ctk.CTkButton(self.tag_bar_frame, text='ALL', height=24, width=46,
-                                font=ctk.CTkFont(size=10),
-                                fg_color='#1f6aa5' if all_active else 'transparent',
-                                border_width=1, border_color='#555555',
+        # Build tag buttons row by row
+        for row_num in sorted(rows_dict.keys()):
+            tags_in_row = rows_dict[row_num]
+            for col, tag in enumerate(tags_in_row):
+                is_active = tag in self._active_tags
+                btn = ctk.CTkButton(self.tag_bar_frame, text=tag.upper(), height=22, width=70,
+                                    font=ctk.CTkFont(size=9),
+                                    fg_color='#1f6aa5' if is_active else 'transparent',
+                                    border_width=1, border_color='#555555',
+                                    command=lambda t=tag: self._on_tag_filter(t))
+                btn.grid(row=row_num, column=col, padx=1, pady=1, sticky='ew')
+                self._tag_buttons.append(btn)
+                self._tag_btn_map[tag] = btn
+
+        # ALL button — styled like Reset, on the right side of the last row
+        all_active = not self._active_tags
+        last_row = max(rows_dict.keys())
+        last_row_len = len(rows_dict[last_row])
+        btn_all = ctk.CTkButton(self.tag_bar_frame, text='ALL', height=22, width=46,
+                                font=ctk.CTkFont(size=9, weight='bold'),
+                                fg_color='transparent',
+                                border_width=1,
+                                border_color='#1f6aa5' if not all_active else '#555555',
+                                text_color='#1f6aa5' if not all_active else '#999999',
+                                hover_color='#3b3b3b',
                                 command=lambda: self._on_tag_filter('All'))
-        btn_all.grid(row=0, column=0, padx=(4, 2), pady=2)
+        btn_all.grid(row=0, column=20, padx=(6, 2), pady=1, sticky='e')
         self._tag_buttons.append(btn_all)
         self._tag_btn_map['__ALL__'] = btn_all
-
-        col = 1
-        row = 0
-        for tag in sorted(all_tags):
-            if col >= max_cols:
-                col = 0
-                row += 1
-            is_active = tag in self._active_tags
-            btn = ctk.CTkButton(self.tag_bar_frame, text=tag.upper(), height=24,
-                                font=ctk.CTkFont(size=10),
-                                fg_color='#1f6aa5' if is_active else 'transparent',
-                                border_width=1, border_color='#555555',
-                                command=lambda t=tag: self._on_tag_filter(t))
-            btn.grid(row=row, column=col, padx=2, pady=2)
-            self._tag_buttons.append(btn)
-            self._tag_btn_map[tag] = btn
-            col += 1
 
     def _update_tag_highlights(self):
         """Update tag button colours in-place without destroying/recreating."""
@@ -1701,7 +1773,10 @@ class MusicPlayer(ctk.CTk):
         for tag_key, btn in self._tag_btn_map.items():
             try:
                 if tag_key == '__ALL__':
-                    btn.configure(fg_color='#1f6aa5' if all_active else 'transparent')
+                    btn.configure(
+                        fg_color='transparent',
+                        border_color='#1f6aa5' if not all_active else '#555555',
+                        text_color='#1f6aa5' if not all_active else '#999999')
                 else:
                     btn.configure(fg_color='#1f6aa5' if tag_key in self._active_tags else 'transparent')
             except Exception:
@@ -2410,11 +2485,10 @@ class MusicPlayer(ctk.CTk):
         if hasattr(self, '_track_count_lbl'):
             total = len(playlist)
             shown = len(self.display_indices)
-            perf_sfx = getattr(self, '_perf_text', '')
             if shown == total:
-                self._track_count_lbl.configure(text=f'{total} tracks{perf_sfx}')
+                self._track_count_lbl.configure(text=f'{total} tracks')
             else:
-                self._track_count_lbl.configure(text=f'{shown} of {total} tracks{perf_sfx}')
+                self._track_count_lbl.configure(text=f'{shown} of {total} tracks')
 
     # ── File management ──────────────────────────────────
 
@@ -3187,6 +3261,34 @@ class MusicPlayer(ctk.CTk):
         menu.add_command(label='\U0001f4cb  Add to Queue',
                          command=lambda: self._add_multiple_to_queue([playlist_idx]))
         menu.tk_popup(ev.x_root, ev.y_root)
+
+    def _on_play_log_double_click(self, ev):
+        """Double-click a play log entry to select the track in the main track listing."""
+        item = self._play_log_tree.identify_row(ev.y)
+        if not item or item not in self._play_log_track_map:
+            return
+        track_id, file_path, title = self._play_log_track_map[item]
+
+        # Find the playlist index for this track
+        playlist_idx = None
+        for i, entry in enumerate(self.playlist):
+            if entry.get('path') == file_path:
+                playlist_idx = i
+                break
+        if playlist_idx is None:
+            return
+
+        # Find the tree position via the reverse display index map
+        pos = self._di_reverse.get(playlist_idx)
+        if pos is None:
+            return
+        children = self.tree.get_children()
+        if pos >= len(children):
+            return
+        tree_iid = children[pos]
+        self.tree.selection_set(tree_iid)
+        self.tree.see(tree_iid)
+        self.tree.focus(tree_iid)
 
     # ── Lite mode ──────────────────────────────────────────
 

@@ -23,17 +23,17 @@
     <duration label="&gt; 7 min" lo="420" />
   </length_filter_durations>
   <tags>
-    <tag name="advanced" />
-    <tag name="beginner" />
-    <tag name="boop" />
-    <tag name="class" />
-    <tag name="classic" />
-    <tag name="drill" />
-    <tag name="fast" />
-    <tag name="instrumental" />
-    <tag name="nice" />
-    <tag name="playable" />
-    <tag name="social" />
+    <tag name="advanced" row="0" />
+    <tag name="beginner" row="0" />
+    <tag name="boop" row="0" />
+    <tag name="class" row="0" />
+    <tag name="classic" row="0" />
+    <tag name="drill" row="0" />
+    <tag name="fast" row="0" />
+    <tag name="instrumental" row="1" />
+    <tag name="nice" row="1" />
+    <tag name="playable" row="1" />
+    <tag name="social" row="1" />
   </tags>
   <playlists>
     <playlist name="Shaun">
