@@ -34,7 +34,6 @@ try:
 except Exception:
     MutagenFile = None
 
-PLAY_MIN_SECONDS = 5
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_player.db')
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_player_config.xml')
 
@@ -212,10 +211,6 @@ class MusicPlayer(ctk.CTk):
         self.vlc_instance = vlc.Instance()
         self.vlc_player = self.vlc_instance.media_list_player_new()
         self.vlc_media_list = self.vlc_instance.media_list_new()
-
-        # Play tracking
-        self._playback_start_time = None
-        self._play_recorded = False
 
         # Play queue: list of playlist indices
         self._play_queue = []
@@ -709,6 +704,20 @@ class MusicPlayer(ctk.CTk):
         con.commit()
         con.close()
         return stats
+
+    def _record_play_immediate(self):
+        """Record the play for the current track right now and update the UI."""
+        if self.current_index is None:
+            return
+        path = self.playlist[self.current_index]['path']
+        stats = self._record_play(path)
+        if stats:
+            entry = self.playlist[self.current_index]
+            entry['play_count'] = stats[0]
+            entry['first_played'] = stats[1]
+            entry['last_played'] = stats[2]
+        self._update_single_row(self.current_index)
+        self._refresh_play_log()
 
     def _get_track_stats(self, path):
         con = sqlite3.connect(DB_PATH)
@@ -1542,8 +1551,7 @@ class MusicPlayer(ctk.CTk):
         self.is_paused = False
         self._last_action = 'playing'
         self._play_started_at = time.time()
-        self._playback_start_time = time.time()
-        self._play_recorded = False
+        self._record_play_immediate()
         self._log_action('prev_track', self.playlist[prev_idx]['title'] if prev_idx < len(self.playlist) else '')
         self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
         self._update_now_playing()
@@ -2716,8 +2724,6 @@ class MusicPlayer(ctk.CTk):
             return False
         path = self.playlist[index]['path']
         try:
-            self._playback_start_time = None
-            self._play_recorded = False
             media = self.vlc_instance.media_new(path)
             self.vlc_media_list = self.vlc_instance.media_list_new()
             self.vlc_media_list.add_media(media)
@@ -2790,8 +2796,7 @@ class MusicPlayer(ctk.CTk):
             self.is_paused = False
             self._last_action = 'playing'
             self._play_started_at = time.time()
-            self._playback_start_time = time.time()
-            self._play_recorded = False
+            self._record_play_immediate()
             self._log_action('play', self.playlist[self.current_index]['title'] if self.current_index is not None else '')
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
@@ -2804,7 +2809,6 @@ class MusicPlayer(ctk.CTk):
         self.is_playing = False
         self.is_paused = False
         self._last_action = 'stopped'
-        self._playback_start_time = None
         self.btn_play.configure(text='\u25b6', fg_color='#1f6aa5', hover_color='#1a5a8a')
         self.scrub_slider.set(0)
         self.lbl_time_cur.configure(text='0:00')
@@ -2834,8 +2838,7 @@ class MusicPlayer(ctk.CTk):
         self.is_paused = False
         self._last_action = 'playing'
         self._play_started_at = time.time()
-        self._playback_start_time = time.time()
-        self._play_recorded = False
+        self._record_play_immediate()
         self._log_action('next_track', self.playlist[nxt]['title'] if nxt < len(self.playlist) else '')
         self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
         self._update_now_playing()
@@ -3084,8 +3087,7 @@ class MusicPlayer(ctk.CTk):
             self.is_paused = False
             self._last_action = 'playing'
             self._play_started_at = time.time()
-            self._playback_start_time = time.time()
-            self._play_recorded = False
+            self._record_play_immediate()
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
 
@@ -3557,8 +3559,7 @@ class MusicPlayer(ctk.CTk):
             self.is_paused = False
             self._last_action = 'playing'
             self._play_started_at = time.time()
-            self._playback_start_time = time.time()
-            self._play_recorded = False
+            self._record_play_immediate()
             self._log_action('context_play', self.playlist[playlist_idx]['title'])
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
@@ -3832,8 +3833,7 @@ class MusicPlayer(ctk.CTk):
             self.is_paused = False
             self._last_action = 'playing'
             self._play_started_at = time.time()
-            self._playback_start_time = time.time()
-            self._play_recorded = False
+            self._record_play_immediate()
             self._log_action('play_now', self.playlist[playlist_idx]['title'])
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
@@ -3928,8 +3928,7 @@ class MusicPlayer(ctk.CTk):
                 self.is_paused = False
                 self._last_action = 'playing'
                 self._play_started_at = time.time()
-                self._playback_start_time = time.time()
-                self._play_recorded = False
+                self._record_play_immediate()
                 self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
                 self._update_now_playing()
 
@@ -3981,23 +3980,6 @@ class MusicPlayer(ctk.CTk):
                 self.scrub_slider.set(0)
                 self.lbl_time_cur.configure(text='0:00')
                 self.lbl_time_total.configure(text='0:00')
-
-        if (self._playback_start_time is not None
-                and not self._play_recorded
-                and self.current_index is not None):
-            elapsed = time.time() - self._playback_start_time
-            if elapsed >= PLAY_MIN_SECONDS:
-                path = self.playlist[self.current_index]['path']
-                stats = self._record_play(path)
-                self._play_recorded = True
-                if stats:
-                    entry = self.playlist[self.current_index]
-                    entry['play_count'] = stats[0]
-                    entry['first_played'] = stats[1]
-                    entry['last_played'] = stats[2]
-                # Update just the single row instead of full treeview rebuild
-                self._update_single_row(self.current_index)
-                self._refresh_play_log()
 
         if not is_playing and self._last_action == 'playing' and not self.is_paused:
             # Guard: don't auto-advance within 1.5s of play being issued (VLC async startup)
