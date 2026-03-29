@@ -10,6 +10,8 @@ Layout:
 - Bottom: big play/stop buttons + scrub bar
 """
 
+import functools
+import logging
 import os
 import shutil
 import sqlite3
@@ -35,6 +37,94 @@ except Exception:
 PLAY_MIN_SECONDS = 5
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_player.db')
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_player_config.xml')
+
+# ── Performance tracking ─────────────────────────────────
+
+_PERF_LOG_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+class PerfTracker:
+    """Lightweight performance tracker: timing decorator + stats accumulator."""
+
+    def __init__(self):
+        self.stats = {}          # method_name → {calls, total, min, max, last}
+        self._ui_callback = None  # set to a callable(method_name, ms) to update UI
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self._log_path = os.path.join(_PERF_LOG_DIR, f'perf_{ts}.log')
+        self._logger = logging.getLogger('perf')
+        self._logger.setLevel(logging.DEBUG)
+        self._logger.propagate = False
+        # File handler — timestamped log
+        fh = logging.FileHandler(self._log_path, encoding='utf-8')
+        fh.setFormatter(logging.Formatter('%(asctime)s  %(message)s', datefmt='%H:%M:%S'))
+        self._logger.addHandler(fh)
+        # Console handler
+        ch = logging.StreamHandler()
+        ch.setFormatter(logging.Formatter('\033[36m[perf]\033[0m %(message)s'))
+        self._logger.addHandler(ch)
+        self._logger.info(f'Performance log started → {self._log_path}')
+
+    def track(self, method):
+        """Decorator: wraps a method to record its execution time."""
+        name = method.__qualname__
+
+        @functools.wraps(method)
+        def wrapper(*args, **kwargs):
+            t0 = time.perf_counter()
+            try:
+                return method(*args, **kwargs)
+            finally:
+                elapsed = (time.perf_counter() - t0) * 1000  # ms
+                s = self.stats.get(name)
+                if s is None:
+                    s = {'calls': 0, 'total': 0.0, 'min': float('inf'), 'max': 0.0, 'last': 0.0}
+                    self.stats[name] = s
+                s['calls'] += 1
+                s['total'] += elapsed
+                s['last'] = elapsed
+                if elapsed < s['min']:
+                    s['min'] = elapsed
+                if elapsed > s['max']:
+                    s['max'] = elapsed
+                # Only log noteworthy calls (> 1ms) to reduce noise
+                if elapsed > 1.0:
+                    self._logger.info(f'{name}: {elapsed:.1f}ms')
+                if self._ui_callback:
+                    try:
+                        self._ui_callback(name, elapsed)
+                    except Exception:
+                        pass
+        return wrapper
+
+    def summary(self):
+        """Return a formatted summary string of all tracked methods."""
+        if not self.stats:
+            return 'No performance data collected yet.'
+        lines = ['', '═' * 80, '  PERFORMANCE SUMMARY', '═' * 80,
+                 f'  {"Method":<45} {"Calls":>6} {"Total":>9} {"Avg":>8} {"Min":>8} {"Max":>8} {"Last":>8}',
+                 '  ' + '─' * 78]
+        for name in sorted(self.stats, key=lambda n: self.stats[n]['total'], reverse=True):
+            s = self.stats[name]
+            avg = s['total'] / s['calls'] if s['calls'] else 0
+            short = name.split('.')[-1] if '.' in name else name
+            lines.append(f'  {short:<45} {s["calls"]:>6} {s["total"]:>8.1f}ms {avg:>7.1f}ms '
+                         f'{s["min"]:>7.1f}ms {s["max"]:>7.1f}ms {s["last"]:>7.1f}ms')
+        lines.append('═' * 80)
+        return '\n'.join(lines)
+
+    def dump(self):
+        """Print summary to console and write to log file."""
+        text = self.summary()
+        self._logger.info(text)
+        return text
+
+    def reset(self):
+        """Clear all accumulated stats."""
+        self.stats.clear()
+        self._logger.info('Stats reset')
+
+
+perf = PerfTracker()
 
 
 def _add_tooltip(widget, text):
@@ -458,6 +548,7 @@ class MusicPlayer(ctk.CTk):
         con.close()
         return row
 
+    @perf.track
     def _record_play(self, path):
         now = datetime.now(tz=timezone.utc).isoformat()
         con = sqlite3.connect(DB_PATH)
@@ -1093,11 +1184,22 @@ class MusicPlayer(ctk.CTk):
                                            height=26, font=ctk.CTkFont(size=11))
         self._search_entry.pack(fill='x', pady=(0, 2))
 
-        # Track count label
-        self._track_count_lbl = ctk.CTkLabel(tree_frame, text='0 tracks',
+        # Track count label + perf info
+        status_row = ctk.CTkFrame(tree_frame, fg_color='transparent')
+        status_row.pack(fill='x', pady=(0, 2))
+        self._track_count_lbl = ctk.CTkLabel(status_row, text='0 tracks',
                                               font=ctk.CTkFont(size=10),
                                               text_color='#888888', anchor='w')
-        self._track_count_lbl.pack(fill='x', pady=(0, 2))
+        self._track_count_lbl.pack(side='left')
+        self._perf_lbl = ctk.CTkLabel(status_row, text='',
+                                       font=ctk.CTkFont(size=9),
+                                       text_color='#666666', anchor='e')
+        self._perf_lbl.pack(side='right', padx=(8, 0))
+        # Wire up the perf tracker UI callback
+        def _perf_ui_update(method_name, ms):
+            short = method_name.split('.')[-1] if '.' in method_name else method_name
+            self._perf_lbl.configure(text=f'{short}: {ms:.0f}ms')
+        perf._ui_callback = _perf_ui_update
 
         self._all_columns = ('Title', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
                               'Plays', 'First Played', 'Last Played', 'File Created')
@@ -1162,6 +1264,7 @@ class MusicPlayer(ctk.CTk):
         self.bind('<Escape>', lambda e: self.stop())
         self.bind('<Control-f>', lambda e: self._focus_search())
         self.bind('<F11>', lambda e: self._toggle_fullscreen())
+        self.bind('<F12>', lambda e: perf.dump())
 
     def _focus_search(self):
         """Focus the search box."""
@@ -1336,6 +1439,7 @@ class MusicPlayer(ctk.CTk):
 
     # ── Tag filter bar ───────────────────────────────────
 
+    @perf.track
     def _build_tag_bar(self):
         """Build tag buttons from the static _all_tags set. All defined tags
         are always shown regardless of which tracks are currently displayed."""
@@ -1894,6 +1998,7 @@ class MusicPlayer(ctk.CTk):
             self.tree.heading(c, text=f'{c}{arrow}')
         self._apply_filter()
 
+    @perf.track
     def _apply_filter(self):
         self._applying_filter = True
         try:
@@ -1901,6 +2006,7 @@ class MusicPlayer(ctk.CTk):
         finally:
             self._applying_filter = False
 
+    @perf.track
     def _apply_filter_inner(self):
         # Remember which playlist indices were selected
         prev_selected = set()
@@ -2114,6 +2220,7 @@ class MusicPlayer(ctk.CTk):
         self._build_genre_list()
         self._apply_filter()
 
+    @perf.track
     def add_folder(self):
         folder = filedialog.askdirectory(title='Select folder')
         if not folder:
@@ -2235,6 +2342,7 @@ class MusicPlayer(ctk.CTk):
         """Invalidate the item-to-position cache after treeview changes."""
         self._item_pos_cache = None
 
+    @perf.track
     def _update_single_row(self, playlist_idx):
         """Update one row's values in the treeview without a full rebuild."""
         pos = self._di_reverse.get(playlist_idx)
@@ -2260,6 +2368,7 @@ class MusicPlayer(ctk.CTk):
                        values=(title, length_str, rating_str, comment, tags_str, liked_str, disliked_str,
                                plays, first_p, last_p, file_c))
 
+    @perf.track
     def _load(self, index):
         if index is None or index < 0 or index >= len(self.playlist):
             return False
@@ -2356,6 +2465,7 @@ class MusicPlayer(ctk.CTk):
         self.lbl_time_total.configure(text='0:00')
         self._update_now_playing('Stopped')
 
+    @perf.track
     def _next_track(self):
         if not self.playlist:
             return
@@ -2839,6 +2949,7 @@ class MusicPlayer(ctk.CTk):
 
     # ── Track selection events ───────────────────────────
 
+    @perf.track
     def _on_right_click(self, ev):
         """Show context menu on right-click."""
         item = self.tree.identify_row(ev.y)
@@ -3128,6 +3239,7 @@ class MusicPlayer(ctk.CTk):
         con.close()
         self._apply_filter()
 
+    @perf.track
     def _on_select(self, ev):
         if self._applying_filter:
             return
@@ -3167,6 +3279,7 @@ class MusicPlayer(ctk.CTk):
             self._play_bar.pack(fill='x', padx=14, pady=(0, 2), after=self._controls_frame)
             self._play_now_visible = True
 
+    @perf.track
     def _play_now_click(self):
         """Play the currently selected track immediately."""
         sel = self.tree.selection()
@@ -3214,6 +3327,7 @@ class MusicPlayer(ctk.CTk):
                                      state='disabled',
                                      fg_color='#555555', text_color='#888888')
 
+    @perf.track
     def _on_double(self, ev):
         sel = self.tree.selection()
         if not sel:
@@ -3276,6 +3390,7 @@ class MusicPlayer(ctk.CTk):
             pass  # never let poll crash kill the event loop
         self.after(500, self._poll)
 
+    @perf.track
     def _poll_inner(self):
         mp = self.vlc_player.get_media_player()
         is_playing = mp.is_playing()
