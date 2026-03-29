@@ -1775,6 +1775,7 @@ class MusicPlayer(ctk.CTk):
         now = datetime.now(tz=timezone.utc).isoformat()
         imported_ratings = 0
         imported_comments = 0
+        imported_tags = 0
         matched = 0
         skipped = 0
 
@@ -1826,31 +1827,45 @@ class MusicPlayer(ctk.CTk):
                     imported_ratings += 1
                     log(f'  \u2b50 {title} \u2192 {stars} votes')
 
-            # Import comment
+            # Import comment — extract ALL CAPS words as tags
             comment_el = entry.find('comment')
             if comment_el is not None and comment_el.text and comment_el.text.strip():
                 comment_text = comment_el.text.strip()
-                con.execute("UPDATE tracks SET comment = ? WHERE id = ? AND (comment IS NULL OR comment = '')",
-                            (comment_text, track_id))
-                if cur.rowcount > 0:
-                    imported_comments += 1
-                    log(f'  \U0001f4ac {title} \u2192 "{comment_text[:60]}"')
+                words = comment_text.split()
+                tags_found = [w for w in words if len(w) >= 2 and w.isalpha() and w.isupper()]
+                remaining = [w for w in words if not (len(w) >= 2 and w.isalpha() and w.isupper())]
+                # Insert tags
+                for tag_word in tags_found:
+                    tag_lower = tag_word.lower()
+                    con.execute("INSERT OR IGNORE INTO track_tags (track_id, tag) VALUES (?, ?)",
+                                (track_id, tag_lower))
+                    imported_tags += 1
+                if tags_found:
+                    log(f'  \U0001f3f7 {title} \u2192 tags: {", ".join(t.lower() for t in tags_found)}')
+                # Store the remaining comment (without the tag words)
+                clean_comment = ' '.join(remaining).strip()
+                if clean_comment:
+                    con.execute("UPDATE tracks SET comment = ? WHERE id = ? AND (comment IS NULL OR comment = '')",
+                                (clean_comment, track_id))
+                    if cur.rowcount > 0:
+                        imported_comments += 1
+                        log(f'  \U0001f4ac {title} \u2192 "{clean_comment[:60]}"')
 
             # Update progress
             if i % 50 == 0 or i == total:
                 prog_bar.set(i / total)
-                prog_label.configure(text=f'{i}/{total}  |  matched: {matched}  |  ratings: {imported_ratings}  |  comments: {imported_comments}  |  skipped: {skipped}')
+                prog_label.configure(text=f'{i}/{total}  |  matched: {matched}  |  ratings: {imported_ratings}  |  tags: {imported_tags}  |  comments: {imported_comments}  |  skipped: {skipped}')
                 dialog.update_idletasks()
 
         con.commit()
         con.close()
         prog_bar.set(1.0)
 
-        summary = (f'Done!  Ratings: {imported_ratings}  |  Comments: {imported_comments}  |  '
+        summary = (f'Done!  Ratings: {imported_ratings}  |  Tags: {imported_tags}  |  Comments: {imported_comments}  |  '
                    f'Matched: {matched}  |  Skipped: {skipped}')
         prog_label.configure(text=summary)
         log(f'\n{summary}')
-        self._log_action('import_rhythmbox_done', f'ratings={imported_ratings} comments={imported_comments} skipped={skipped}')
+        self._log_action('import_rhythmbox_done', f'ratings={imported_ratings} tags={imported_tags} comments={imported_comments} skipped={skipped}')
 
         # Reload to pick up the new votes/comments
         self._load_tracks_from_db()
