@@ -1,0 +1,4 @@
+15:03:21  Performance log started → /home/shauns/Desktop/MusicPlayer/perf_20260329_150321.log
+15:03:25  MusicPlayer._apply_filter_inner: 351.5ms
+15:03:25  MusicPlayer._apply_filter: 352.0ms
+15:03:25  MusicPlayer._build_tag_bar: 101.4ms

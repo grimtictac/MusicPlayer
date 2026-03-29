@@ -1,0 +1,22 @@
+14:48:38  Performance log started → /home/shauns/Desktop/MusicPlayer/perf_20260329_144838.log
+14:48:41  MusicPlayer._apply_filter_inner: 390.7ms
+14:48:41  MusicPlayer._apply_filter: 391.2ms
+14:48:41  MusicPlayer._build_tag_bar: 91.7ms
+14:48:44  MusicPlayer._on_select: 2.7ms
+14:48:44  MusicPlayer._on_double: 40.5ms
+14:50:57  MusicPlayer._on_right_click: 37.1ms
+14:50:57  MusicPlayer._on_select: 1.4ms
+14:50:59  MusicPlayer._update_single_row: 1.1ms [add_tag]
+14:51:21  MusicPlayer._on_select: 1.5ms [add_tag]
+14:51:22  MusicPlayer._on_right_click: 21.5ms [add_tag]
+14:51:29  MusicPlayer._update_single_row: 1.0ms [edit_comment]
+14:51:46  MusicPlayer._on_double: 21.0ms [edit_comment]
+14:51:47  MusicPlayer._load: 1.7ms [edit_comment]
+14:51:53  MusicPlayer._record_play: 4.7ms [edit_comment]
+14:51:55  MusicPlayer._update_single_row: 1.3ms [vote_like]
+14:52:00  MusicPlayer._update_single_row: 1.1ms [vote_like]
+14:52:12  MusicPlayer._on_select: 1.3ms [vote_like]
+14:52:13  MusicPlayer._on_double: 18.6ms [vote_like]
+14:52:14  MusicPlayer._load: 1.7ms [vote_like]
+14:52:14  MusicPlayer._on_select: 1.1ms [vote_like]
+14:52:19  MusicPlayer._record_play: 4.4ms [vote_like]

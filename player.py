@@ -227,6 +227,12 @@ class MusicPlayer(ctk.CTk):
         # Guard to prevent _on_select re-entry during _apply_filter
         self._applying_filter = False
 
+        # Lite mode state
+        self._lite_mode = False
+
+        # Play log track map: tree item iid → (track_id, file_path, title)
+        self._play_log_track_map = {}
+
         self._init_database()
 
         self._build_ui()
@@ -1090,18 +1096,45 @@ class MusicPlayer(ctk.CTk):
         self._tag_buttons = []
         self._tag_btn_map = {}
 
-        # ═══ MAIN AREA: Browse + Queue ═══
+        # ═══ MAIN AREA: Browse + Queue (resizable via PanedWindow) ═══
         main_area = ctk.CTkFrame(_content, fg_color='transparent')
         main_area.pack(fill='both', expand=True, padx=4, pady=(4, 2))
 
-        # ── PLAY QUEUE + PLAY LOG CONTAINER (right side of browse area) ──
-        right_container = ctk.CTkFrame(main_area, width=200, fg_color='transparent')
-        right_container.pack(side='right', fill='y', padx=(4, 0))
-        right_container.pack_propagate(False)
+        # Horizontal PanedWindow: left sidebar | browse | queue/log strip
+        self._main_paned = tk.PanedWindow(main_area, orient='horizontal',
+                                           bg='#1e1e2e', sashwidth=5, sashrelief='flat',
+                                           opaqueresize=True, borderwidth=0)
+        self._main_paned.pack(fill='both', expand=True)
+
+        # ── LEFT SIDEBAR (genre + playlist panels) ──
+        self._left_sidebar = ctk.CTkFrame(self._main_paned, width=170, fg_color='transparent')
+
+        # ── BROWSE PANEL (fills centre) ──
+        self._browse_panel = ctk.CTkFrame(self._main_paned, fg_color='#2b2b2b', corner_radius=8)
+        browse = self._browse_panel
+
+        # ── RIGHT CONTAINER: queue button + queue/log panels ──
+        right_wrapper = ctk.CTkFrame(self._main_paned, fg_color='transparent')
+
+        # ── ADD-TO-QUEUE BUTTON (thin vertical strip on left of right wrapper) ──
+        self._btn_send_to_queue = ctk.CTkButton(
+            right_wrapper, text='›', width=22, height=80,
+            font=ctk.CTkFont(size=20, weight='bold'),
+            fg_color='#3b3b3b', hover_color='#1f6aa5',
+            corner_radius=4, command=self._send_selected_to_queue)
+        self._btn_send_to_queue.pack(side='left', fill='y', padx=(0, 2))
+
+        right_container = ctk.CTkFrame(right_wrapper, fg_color='transparent')
+        right_container.pack(side='left', fill='both', expand=True)
+
+        # Vertical PanedWindow inside right_container: queue on top, play log on bottom
+        self._right_paned = tk.PanedWindow(right_container, orient='vertical',
+                                            bg='#1e1e2e', sashwidth=4, sashrelief='flat',
+                                            opaqueresize=True, borderwidth=0)
+        self._right_paned.pack(fill='both', expand=True)
 
         # ── PLAY QUEUE PANEL (top half) ──
-        queue_panel = ctk.CTkFrame(right_container, fg_color='#2b2b2b', corner_radius=8)
-        queue_panel.pack(fill='both', expand=True, pady=(0, 2))
+        queue_panel = ctk.CTkFrame(self._right_paned, fg_color='#2b2b2b', corner_radius=8)
 
         queue_header = ctk.CTkFrame(queue_panel, fg_color='transparent')
         queue_header.pack(fill='x', padx=6, pady=(6, 2))
@@ -1146,8 +1179,7 @@ class MusicPlayer(ctk.CTk):
         _btn_q_random.pack(side='right', padx=2)
 
         # ── PLAY LOG PANEL (below queue) ──
-        play_log_panel = ctk.CTkFrame(right_container, fg_color='#2b2b2b', corner_radius=8)
-        play_log_panel.pack(fill='both', expand=True, pady=(2, 0))
+        play_log_panel = ctk.CTkFrame(self._right_paned, fg_color='#2b2b2b', corner_radius=8)
 
         play_log_header = ctk.CTkFrame(play_log_panel, fg_color='transparent')
         play_log_header.pack(fill='x', padx=6, pady=(6, 2))
@@ -1161,40 +1193,49 @@ class MusicPlayer(ctk.CTk):
         log_tree_frame = ctk.CTkFrame(play_log_panel, fg_color='transparent')
         log_tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 6))
 
+        style.configure('PlayLog.Treeview',
+                        background='#1e2a1e',
+                        foreground='#c8e6c9',
+                        fieldbackground='#1e2a1e',
+                        borderwidth=0,
+                        rowheight=22,
+                        font=('Segoe UI', 9))
+        style.configure('PlayLog.Treeview.Heading',
+                        background='#2d4a2d',
+                        foreground='#c8e6c9',
+                        font=('Segoe UI', 9, 'bold'),
+                        borderwidth=0)
+        style.map('PlayLog.Treeview',
+                  background=[('selected', '#2e7d32')],
+                  foreground=[('selected', '#ffffff')])
+
         self._play_log_tree = ttk.Treeview(
             log_tree_frame, columns=('Title', 'Genre'), show='tree headings',
-            height=6)
+            height=6, style='PlayLog.Treeview')
         self._play_log_tree.heading('#0', text='Date', anchor='w')
         self._play_log_tree.heading('Title', text='Title')
         self._play_log_tree.heading('Genre', text='Genre')
         self._play_log_tree.column('#0', width=90, anchor='w')
-        self._play_log_tree.column('Title', width=100, anchor='w')
-        self._play_log_tree.column('Genre', width=60, anchor='w')
+        self._play_log_tree.column('Title', width=120, anchor='w')
+        self._play_log_tree.column('Genre', width=70, anchor='w')
         self._play_log_tree.pack(side='left', fill='both', expand=True)
+        self._play_log_tree.bind('<Button-3>', self._on_play_log_right_click)
 
         log_sb = ctk.CTkScrollbar(log_tree_frame, command=self._play_log_tree.yview)
         log_sb.pack(side='right', fill='y')
         self._play_log_tree.config(yscrollcommand=log_sb.set)
 
-        # ── ADD-TO-QUEUE BUTTON (thin vertical strip between browse and queue) ──
-        self._btn_send_to_queue = ctk.CTkButton(
-            main_area, text='›', width=22, height=80,
-            font=ctk.CTkFont(size=20, weight='bold'),
-            fg_color='#3b3b3b', hover_color='#1f6aa5',
-            corner_radius=4, command=self._send_selected_to_queue)
-        self._btn_send_to_queue.pack(side='right', fill='y', padx=2)
+        # Add panels to the vertical PanedWindow (queue | play log)
+        self._right_paned.add(queue_panel, minsize=100, stretch='always')
+        self._right_paned.add(play_log_panel, minsize=80, stretch='always')
 
-        # ── BROWSE PANEL (fills remaining space) ──
-        browse = ctk.CTkFrame(main_area, fg_color='#2b2b2b', corner_radius=8)
-        browse.pack(side='right', fill='both', expand=True)
-
-        # ── LEFT SIDEBAR (genre + playlist panels) ──
-        left_sidebar = ctk.CTkFrame(main_area, width=170, fg_color='transparent')
-        left_sidebar.pack(side='left', fill='y', padx=(0, 4))
-        left_sidebar.pack_propagate(False)
+        # Add panels to the horizontal PanedWindow (left sidebar | browse | right)
+        self._main_paned.add(self._left_sidebar, minsize=120, stretch='never', width=170)
+        self._main_paned.add(browse, minsize=300, stretch='always')
+        self._main_paned.add(right_wrapper, minsize=150, stretch='never', width=240)
 
         # ── GENRE LISTBOX ──
-        genre_panel = ctk.CTkFrame(left_sidebar, fg_color='#2b2b2b', corner_radius=8)
+        genre_panel = ctk.CTkFrame(self._left_sidebar, fg_color='#2b2b2b', corner_radius=8)
         genre_panel.pack(fill='both', expand=True, pady=(0, 4))
 
         genre_header = ctk.CTkFrame(genre_panel, fg_color='transparent')
@@ -1217,7 +1258,7 @@ class MusicPlayer(ctk.CTk):
         self._genre_listbox.bind('<<ListboxSelect>>', self._on_genre_listbox_select)
 
         # ── PLAYLIST PANEL ──
-        playlist_panel = ctk.CTkFrame(left_sidebar, fg_color='#2b2b2b', corner_radius=8)
+        playlist_panel = ctk.CTkFrame(self._left_sidebar, fg_color='#2b2b2b', corner_radius=8)
         playlist_panel.pack(fill='both', expand=True)
 
         playlist_header = ctk.CTkFrame(playlist_panel, fg_color='transparent')
@@ -1239,11 +1280,11 @@ class MusicPlayer(ctk.CTk):
         self._playlist_listbox.bind('<Button-3>', self._on_playlist_right_click)
 
         # ── Filter Row 1: Rating + Liked by ──
-        filter_row1 = ctk.CTkFrame(browse, fg_color='transparent')
-        filter_row1.pack(fill='x', padx=6, pady=(4, 1))
-        filter_row1.columnconfigure(1, weight=1)   # rating dropdown
-        filter_row1.columnconfigure(3, weight=2)   # liked-by dropdown
-        filter_row1.columnconfigure(4, weight=0)   # spacer
+        self._filter_row1 = ctk.CTkFrame(browse, fg_color='transparent')
+        self._filter_row1.pack(fill='x', padx=6, pady=(4, 1))
+        self._filter_row1.columnconfigure(1, weight=1)   # rating dropdown
+        self._filter_row1.columnconfigure(3, weight=2)   # liked-by dropdown
+        self._filter_row1.columnconfigure(4, weight=0)   # spacer
 
         _dd_style = dict(height=24, font=ctk.CTkFont(size=10),
                          fg_color='#3b3b3b', button_color='#4a4a4a',
@@ -1251,24 +1292,24 @@ class MusicPlayer(ctk.CTk):
                          dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
                          dropdown_text_color='#dce4ee')
 
-        ctk.CTkLabel(filter_row1, text='Rating', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(self._filter_row1, text='Rating', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
         self._rating_filter_var = tk.StringVar(value='All')
         rating_vals = ['All', '≥ 1', '≥ 2', '≥ 3', '≥ 5', '≥ 10', '≤ -1', '≤ -3', '= 0']
         self._rating_filter_dropdown = ctk.CTkOptionMenu(
-            filter_row1, variable=self._rating_filter_var,
+            self._filter_row1, variable=self._rating_filter_var,
             values=rating_vals, command=self._on_rating_filter, **_dd_style)
         self._rating_filter_dropdown.grid(row=0, column=1, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row1, text='Liked by', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(self._filter_row1, text='Liked by', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
         self._liked_by_var = tk.StringVar(value='All')
         self._liked_by_dropdown = ctk.CTkOptionMenu(
-            filter_row1, variable=self._liked_by_var,
+            self._filter_row1, variable=self._liked_by_var,
             values=['All'], command=self._on_liked_by_filter, **_dd_style)
         self._liked_by_dropdown.grid(row=0, column=3, sticky='ew', padx=(0, 6))
 
         # Reset button
         self._btn_reset_filters = ctk.CTkButton(
-            filter_row1, text='✕ Reset', width=60, height=24,
+            self._filter_row1, text='✕ Reset', width=60, height=24,
             font=ctk.CTkFont(size=10), fg_color='transparent',
             border_width=1, border_color='#555555',
             hover_color='#3b3b3b', text_color='#999999',
@@ -1276,44 +1317,45 @@ class MusicPlayer(ctk.CTk):
         self._btn_reset_filters.grid(row=0, column=5, padx=(4, 0))
 
         # ── Filter Row 2: First Played + Last Played + File Created + Length ──
-        filter_row2 = ctk.CTkFrame(browse, fg_color='transparent')
-        filter_row2.pack(fill='x', padx=6, pady=(0, 2))
-        filter_row2.columnconfigure(1, weight=1)
-        filter_row2.columnconfigure(3, weight=1)
-        filter_row2.columnconfigure(5, weight=1)
-        filter_row2.columnconfigure(7, weight=1)
+        self._filter_row2 = ctk.CTkFrame(browse, fg_color='transparent')
+        self._filter_row2.pack(fill='x', padx=6, pady=(0, 2))
+        self._filter_row2.columnconfigure(1, weight=1)
+        self._filter_row2.columnconfigure(3, weight=1)
+        self._filter_row2.columnconfigure(5, weight=1)
+        self._filter_row2.columnconfigure(7, weight=1)
 
-        ctk.CTkLabel(filter_row2, text='First Played', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(self._filter_row2, text='First Played', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
         self._first_played_var = tk.StringVar(value='All')
         self._first_played_dropdown = ctk.CTkOptionMenu(
-            filter_row2, variable=self._first_played_var,
+            self._filter_row2, variable=self._first_played_var,
             values=['All', 'Today', 'This Week', 'This Month'], command=self._on_first_played_filter, **_dd_style)
         self._first_played_dropdown.grid(row=0, column=1, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row2, text='Last Played', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(self._filter_row2, text='Last Played', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
         self._last_played_var = tk.StringVar(value='All')
         self._last_played_dropdown = ctk.CTkOptionMenu(
-            filter_row2, variable=self._last_played_var,
+            self._filter_row2, variable=self._last_played_var,
             values=['All', 'Today', 'This Week', 'This Month'], command=self._on_last_played_filter, **_dd_style)
         self._last_played_dropdown.grid(row=0, column=3, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row2, text='File Created', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=4, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(self._filter_row2, text='File Created', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=4, sticky='w', padx=(0, 4))
         self._file_created_var = tk.StringVar(value='All')
         self._file_created_dropdown = ctk.CTkOptionMenu(
-            filter_row2, variable=self._file_created_var,
+            self._filter_row2, variable=self._file_created_var,
             values=['All', 'Today', 'This Week', 'This Month'], command=self._on_file_created_filter, **_dd_style)
         self._file_created_dropdown.grid(row=0, column=5, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row2, text='Length', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=6, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(self._filter_row2, text='Length', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=6, sticky='w', padx=(0, 4))
         self._length_filter_var = tk.StringVar(value='All')
         self._length_filter_dropdown = ctk.CTkOptionMenu(
-            filter_row2, variable=self._length_filter_var,
+            self._filter_row2, variable=self._length_filter_var,
             values=self._get_length_filter_values(), command=self._on_length_filter, **_dd_style)
         self._length_filter_dropdown.grid(row=0, column=7, sticky='ew')
 
         # Track list section
-        tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
-        tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 4))
+        self._tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
+        self._tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 4))
+        tree_frame = self._tree_frame
 
         # Tag filter bar — scrollable multi-row wrapping layout
         self._tag_bar_wrapper = ctk.CTkFrame(tree_frame, fg_color='transparent', height=0)
@@ -1414,6 +1456,7 @@ class MusicPlayer(ctk.CTk):
         self.bind('<Left>', lambda e: self._prev_track() if not isinstance(e.widget, (tk.Entry, ctk.CTkEntry)) else None)
         self.bind('<Escape>', lambda e: self.stop())
         self.bind('<Control-f>', lambda e: self._focus_search())
+        self.bind('<Control-l>', lambda e: self._toggle_lite_mode())
         self.bind('<F11>', lambda e: self._toggle_fullscreen())
         self.bind('<F12>', lambda e: perf.dump())
 
@@ -1452,6 +1495,8 @@ class MusicPlayer(ctk.CTk):
         menu.add_command(label='Add Files\u2026', command=self.add_files)
         menu.add_command(label='Add Folder\u2026', command=self.add_folder)
         menu.add_separator()
+        lite_label = '\u2713  Lite Mode' if self._lite_mode else '    Lite Mode'
+        menu.add_command(label=lite_label, command=self._toggle_lite_mode)
         fs_label = 'Exit Fullscreen' if self.attributes('-fullscreen') else 'Fullscreen (F11)'
         menu.add_command(label=fs_label, command=self._toggle_fullscreen)
         menu.add_separator()
@@ -3078,7 +3123,7 @@ class MusicPlayer(ctk.CTk):
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute("""
-            SELECT tp.played_at, t.title, t.genre
+            SELECT tp.played_at, t.title, t.genre, t.id, t.file_path
             FROM track_plays tp
             JOIN tracks t ON t.id = tp.track_id
             ORDER BY tp.played_at DESC
@@ -3087,18 +3132,88 @@ class MusicPlayer(ctk.CTk):
         rows = cur.fetchall()
         con.close()
 
+        # Build a map of file_path → playlist index for voting
+        self._play_log_track_map = {}  # tree item iid → (track_id, file_path, title)
+
         # Group by date
         date_nodes = {}  # date_str → tree item id
-        for played_at, title, genre in rows:
+        for played_at, title, genre, track_id, file_path in rows:
             try:
                 dt = datetime.fromisoformat(played_at).astimezone(tz=None)
                 date_str = dt.strftime('%Y-%m-%d')
+                time_str = dt.strftime('%H:%M')
             except Exception:
                 date_str = str(played_at)[:10]
+                time_str = ''
             if date_str not in date_nodes:
-                date_nodes[date_str] = tree.insert('', 'end', text=date_str, open=(len(date_nodes) == 0))
+                date_nodes[date_str] = tree.insert('', 'end', text=f'\u2192 {date_str}', open=(len(date_nodes) == 0))
             parent = date_nodes[date_str]
-            tree.insert(parent, 'end', text='', values=(title or '?', genre or 'Unknown'))
+            iid = tree.insert(parent, 'end', text=time_str, values=(title or '?', genre or 'Unknown'))
+            self._play_log_track_map[iid] = (track_id, file_path, title or '?')
+
+    def _on_play_log_right_click(self, ev):
+        """Show context menu on play log right-click to vote on a played track."""
+        item = self._play_log_tree.identify_row(ev.y)
+        if not item or item not in self._play_log_track_map:
+            return
+        self._play_log_tree.selection_set(item)
+        track_id, file_path, title = self._play_log_track_map[item]
+
+        # Find the playlist index for this track
+        playlist_idx = None
+        for i, entry in enumerate(self.playlist):
+            if entry.get('path') == file_path:
+                playlist_idx = i
+                break
+
+        if playlist_idx is None:
+            return
+
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label=f'\U0001f3b5  {title[:40]}', state='disabled')
+        menu.add_separator()
+
+        selected_voter = self._voter_var.get()
+        voter = '' if selected_voter in ('', '(anonymous)') else selected_voter
+
+        menu.add_command(label='\U0001f44d  Like',
+                         command=lambda: self._record_vote(playlist_idx, +1, voter))
+        menu.add_command(label='\U0001f44e  Dislike',
+                         command=lambda: self._record_vote(playlist_idx, -1, voter))
+
+        menu.add_separator()
+        menu.add_command(label='\u25b6  Play Now',
+                         command=lambda: self._context_play(playlist_idx))
+        menu.add_command(label='\U0001f4cb  Add to Queue',
+                         command=lambda: self._add_multiple_to_queue([playlist_idx]))
+        menu.tk_popup(ev.x_root, ev.y_root)
+
+    # ── Lite mode ──────────────────────────────────────────
+
+    def _toggle_lite_mode(self):
+        """Toggle lite mode — hides filters, tag bar, and sidebar for a cleaner view."""
+        self._lite_mode = not self._lite_mode
+        self._log_action('toggle_lite_mode', f'{"on" if self._lite_mode else "off"}')
+
+        if self._lite_mode:
+            # Hide filter rows
+            self._filter_row1.pack_forget()
+            self._filter_row2.pack_forget()
+            # Hide tag bar
+            if self._tag_bar_visible:
+                self._tag_bar_wrapper.configure(height=0)
+            # Hide left sidebar by shrinking it in the paned window
+            self._main_paned.paneconfigure(self._left_sidebar, hide=True)
+        else:
+            # Re-show filter rows in correct order: before the tree_frame area
+            # Forget all browse children, then re-pack in proper order
+            for child in self._browse_panel.winfo_children():
+                child.pack_forget()
+            self._filter_row1.pack(fill='x', padx=6, pady=(4, 1))
+            self._filter_row2.pack(fill='x', padx=6, pady=(0, 2))
+            self._tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 4))
+            # Show left sidebar
+            self._main_paned.paneconfigure(self._left_sidebar, hide=False)
 
     # ── Playlist management ────────────────────────────
 
@@ -3606,19 +3721,48 @@ class MusicPlayer(ctk.CTk):
         playlist_idx = self.display_indices[pos]
         entry = self.playlist[playlist_idx]
         title = entry.get('title', entry['basename'])
+        artist = entry.get('artist', '')
+        album = entry.get('album', '')
+        genre = entry.get('genre', '')
 
         dialog = ctk.CTkToplevel(self)
         dialog.title('Play Track')
-        dialog.geometry('360x160')
+        dialog.geometry('440x200')
         dialog.transient(self)
+        dialog.configure(fg_color='#1a2a3a')
+        dialog.resizable(False, False)
+
+        # Position over the track listing (centre of the treeview)
+        self.update_idletasks()
+        tree_x = self.tree.winfo_rootx()
+        tree_y = self.tree.winfo_rooty()
+        tree_w = self.tree.winfo_width()
+        tree_h = self.tree.winfo_height()
+        dlg_w, dlg_h = 440, 200
+        x = tree_x + (tree_w - dlg_w) // 2
+        y = tree_y + (tree_h - dlg_h) // 2
+        dialog.geometry(f'{dlg_w}x{dlg_h}+{x}+{y}')
         dialog.after(100, dialog.grab_set)
 
-        ctk.CTkLabel(dialog, text=title[:60],
-                     font=ctk.CTkFont(size=13, weight='bold'),
-                     wraplength=320).pack(pady=(16, 12))
+        # Title
+        ctk.CTkLabel(dialog, text=title[:70],
+                     font=ctk.CTkFont(size=14, weight='bold'),
+                     wraplength=400, text_color='#ffffff').pack(pady=(18, 2))
+        # Subtitle: artist / album / genre
+        sub_parts = [p for p in [artist, album, genre] if p]
+        if sub_parts:
+            ctk.CTkLabel(dialog, text=' \u2022 '.join(sub_parts)[:80],
+                         font=ctk.CTkFont(size=11),
+                         text_color='#88aacc', wraplength=400).pack(pady=(0, 8))
+        else:
+            ctk.CTkFrame(dialog, fg_color='transparent', height=8).pack()
+
+        # Hint label
+        ctk.CTkLabel(dialog, text='Enter = Play Now    Shift+Enter = Play Next    Esc = Cancel',
+                     font=ctk.CTkFont(size=9), text_color='#667788').pack(pady=(0, 8))
 
         btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
-        btn_row.pack(fill='x', padx=20, pady=(0, 16))
+        btn_row.pack(fill='x', padx=24, pady=(0, 18))
 
         def play_now():
             dialog.destroy()
@@ -3642,11 +3786,23 @@ class MusicPlayer(ctk.CTk):
             self._insert_in_queue(playlist_idx, 0)
 
         ctk.CTkButton(btn_row, text='\u25b6  Play Now', fg_color='#1f6aa5',
+                      hover_color='#2980b9', height=34,
+                      font=ctk.CTkFont(size=13, weight='bold'),
                       command=play_now).pack(side='left', padx=4, expand=True, fill='x')
         ctk.CTkButton(btn_row, text='\u23ed  Play Next', fg_color='#e67e22',
+                      hover_color='#d35400', height=34,
+                      font=ctk.CTkFont(size=13, weight='bold'),
                       command=play_next).pack(side='left', padx=4, expand=True, fill='x')
         ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
+                      hover_color='#666666', height=34,
+                      font=ctk.CTkFont(size=13),
                       command=dialog.destroy).pack(side='left', padx=4, expand=True, fill='x')
+
+        # Keyboard shortcuts
+        dialog.bind('<Return>', lambda e: play_now() if not (e.state & 0x1) else play_next())
+        dialog.bind('<Shift-Return>', lambda e: play_next())
+        dialog.bind('<Escape>', lambda e: dialog.destroy())
+        dialog.focus_force()
 
     # ── Poll ─────────────────────────────────────────────
 
