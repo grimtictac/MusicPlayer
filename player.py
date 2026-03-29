@@ -15,7 +15,7 @@ import shutil
 import sqlite3
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
@@ -1334,15 +1334,21 @@ class MusicPlayer(ctk.CTk):
     # ── Tag filter bar ───────────────────────────────────
 
     def _build_tag_bar(self):
-        for btn in self._tag_buttons:
-            btn.destroy()
-        self._tag_buttons = []
-        self._tag_btn_map = {}  # tag_name -> button (for in-place highlight updates)
-
         visible_tags = set()
         for idx in self.display_indices:
             for tag in self.playlist[idx].get('tags', []):
                 visible_tags.add(tag)
+
+        # If the visible tag set hasn't changed, just update highlights
+        prev_tags = set(k for k in self._tag_btn_map if k != '__ALL__')
+        if visible_tags == prev_tags and self._tag_buttons:
+            self._update_tag_highlights()
+            return
+
+        for btn in self._tag_buttons:
+            btn.destroy()
+        self._tag_buttons = []
+        self._tag_btn_map = {}
 
         if not visible_tags:
             # Collapse tag bar when there are no tags
@@ -1895,50 +1901,63 @@ class MusicPlayer(ctk.CTk):
         # Remember which playlist indices were selected
         prev_selected = set()
         all_items = self.tree.get_children()
-        for item in self.tree.selection():
-            try:
-                pos = list(all_items).index(item)
-                prev_selected.add(self.display_indices[pos])
-            except (ValueError, IndexError):
-                pass
-
         if all_items:
+            sel = self.tree.selection()
+            if sel:
+                item_pos = {iid: i for i, iid in enumerate(all_items)}
+                for item in sel:
+                    pos = item_pos.get(item)
+                    if pos is not None and pos < len(self.display_indices):
+                        prev_selected.add(self.display_indices[pos])
             self.tree.delete(*all_items)
         self.display_indices = []
 
         genre_filter = self._get_genres_for_filter()
         search_term = self._search_var.get().strip().lower() if hasattr(self, '_search_var') else ''
 
-        # Phase 1: collect matching indices
+        # Phase 1: collect matching indices — pre-cache filter values
         matched = []
-        from datetime import datetime, timedelta
         today = datetime.now().date()
         week_ago = today - timedelta(days=7)
         month_ago = today - timedelta(days=30)
-        first_played_filter = getattr(self, '_first_played_var', None)
-        last_played_filter = getattr(self, '_last_played_var', None)
-        file_created_filter = getattr(self, '_file_created_var', None)
+
+        fp_filter_val = self._first_played_var.get() if hasattr(self, '_first_played_var') else 'All'
+        lp_filter_val = self._last_played_var.get() if hasattr(self, '_last_played_var') else 'All'
+        fc_filter_val = self._file_created_var.get() if hasattr(self, '_file_created_var') else 'All'
+        len_filter_val = self._length_filter_var.get() if hasattr(self, '_length_filter_var') else 'All'
+
+        # Pre-build length filter range
+        len_lo = len_hi = None
+        if len_filter_val != 'All':
+            for lbl, lo, hi in self._length_filter_durations:
+                if lbl == len_filter_val:
+                    len_lo, len_hi = lo, hi
+                    break
 
         # Build playlist path set if filtering by playlist
         playlist_paths = None
         if self._active_playlist and self._active_playlist in self._playlists:
             playlist_paths = set(self._playlists[self._active_playlist])
 
-        for idx, entry in enumerate(self.playlist):
+        active_tags = self._active_tags
+        rating_threshold = self._rating_threshold
+        liked_by_filter = self._liked_by_filter
+        playlist = self.playlist
+
+        for idx in range(len(playlist)):
+            entry = playlist[idx]
             # Playlist filter
-            if playlist_paths is not None:
-                if entry['path'] not in playlist_paths:
-                    continue
-            if genre_filter is not None:
-                if entry.get('genre') not in genre_filter:
-                    continue
-            if self._active_tags:
-                track_tags = set(entry.get('tags', []))
-                if not self._active_tags & track_tags:
+            if playlist_paths is not None and entry['path'] not in playlist_paths:
+                continue
+            if genre_filter is not None and entry.get('genre') not in genre_filter:
+                continue
+            if active_tags:
+                track_tags = entry.get('tags')
+                if not track_tags or not active_tags.intersection(track_tags):
                     continue
             # Rating threshold filter
-            if self._rating_threshold is not None:
-                op, val = self._rating_threshold
+            if rating_threshold is not None:
+                op, val = rating_threshold
                 rating = entry.get('rating', 0)
                 if op == '>=' and rating < val:
                     continue
@@ -1947,75 +1966,55 @@ class MusicPlayer(ctk.CTk):
                 elif op == '=' and rating != val:
                     continue
             # Liked-by filter
-            if self._liked_by_filter:
-                if self._liked_by_filter not in entry.get('liked_by', set()):
-                    continue
-            # First Played filter
-            if first_played_filter and first_played_filter.get() != 'All':
+            if liked_by_filter and liked_by_filter not in entry.get('liked_by', set()):
+                continue
+            # Date filters
+            if fp_filter_val != 'All':
                 fp = entry.get('first_played')
-                if fp:
-                    try:
-                        fp_date = datetime.fromisoformat(fp).date()
-                    except Exception:
-                        fp_date = None
-                else:
+                try:
+                    fp_date = datetime.fromisoformat(fp).date() if fp else None
+                except Exception:
                     fp_date = None
-                if first_played_filter.get() == 'Today' and (not fp_date or fp_date != today):
+                if fp_filter_val == 'Today' and (not fp_date or fp_date != today):
                     continue
-                if first_played_filter.get() == 'This Week' and (not fp_date or fp_date < week_ago):
+                if fp_filter_val == 'This Week' and (not fp_date or fp_date < week_ago):
                     continue
-                if first_played_filter.get() == 'This Month' and (not fp_date or fp_date < month_ago):
+                if fp_filter_val == 'This Month' and (not fp_date or fp_date < month_ago):
                     continue
-            # Last Played filter
-            if last_played_filter and last_played_filter.get() != 'All':
+            if lp_filter_val != 'All':
                 lp = entry.get('last_played')
-                if lp:
-                    try:
-                        lp_date = datetime.fromisoformat(lp).date()
-                    except Exception:
-                        lp_date = None
-                else:
+                try:
+                    lp_date = datetime.fromisoformat(lp).date() if lp else None
+                except Exception:
                     lp_date = None
-                if last_played_filter.get() == 'Today' and (not lp_date or lp_date != today):
+                if lp_filter_val == 'Today' and (not lp_date or lp_date != today):
                     continue
-                if last_played_filter.get() == 'This Week' and (not lp_date or lp_date < week_ago):
+                if lp_filter_val == 'This Week' and (not lp_date or lp_date < week_ago):
                     continue
-                if last_played_filter.get() == 'This Month' and (not lp_date or lp_date < month_ago):
+                if lp_filter_val == 'This Month' and (not lp_date or lp_date < month_ago):
                     continue
-            # File Created filter
-            if file_created_filter and file_created_filter.get() != 'All':
+            if fc_filter_val != 'All':
                 fc = entry.get('file_created')
-                if fc:
-                    try:
-                        fc_date = datetime.fromisoformat(fc).date()
-                    except Exception:
-                        fc_date = None
-                else:
+                try:
+                    fc_date = datetime.fromisoformat(fc).date() if fc else None
+                except Exception:
                     fc_date = None
-                if file_created_filter.get() == 'Today' and (not fc_date or fc_date != today):
+                if fc_filter_val == 'Today' and (not fc_date or fc_date != today):
                     continue
-                if file_created_filter.get() == 'This Week' and (not fc_date or fc_date < week_ago):
+                if fc_filter_val == 'This Week' and (not fc_date or fc_date < week_ago):
                     continue
-                if file_created_filter.get() == 'This Month' and (not fc_date or fc_date < month_ago):
+                if fc_filter_val == 'This Month' and (not fc_date or fc_date < month_ago):
                     continue
             # Length filter
-            length_label = getattr(self, '_length_filter_var', None)
-            if length_label and length_label.get() != 'All':
+            if len_filter_val != 'All':
                 track_len = entry.get('length')
-                lf_label = length_label.get()
-                matched_len = False
-                for lbl, lo, hi in self._length_filter_durations:
-                    if lbl == lf_label:
-                        if track_len is None:
-                            matched_len = False
-                        elif lo is not None and hi is not None:
-                            matched_len = lo <= track_len < hi
-                        elif lo is not None:
-                            matched_len = track_len >= lo
-                        elif hi is not None:
-                            matched_len = track_len < hi
-                        break
-                if not matched_len:
+                if track_len is None:
+                    continue
+                if len_lo is not None and len_hi is not None and not (len_lo <= track_len < len_hi):
+                    continue
+                elif len_lo is not None and len_hi is None and track_len < len_lo:
+                    continue
+                elif len_hi is not None and len_lo is None and track_len >= len_hi:
                     continue
             if search_term:
                 title_lower = entry.get('title', entry['basename']).lower()
@@ -2032,14 +2031,19 @@ class MusicPlayer(ctk.CTk):
         # Phase 2: sort if a column is selected
         if self._sort_column and self._sort_column in self._SORT_KEYS:
             key_fn = self._SORT_KEYS[self._sort_column]
-            matched.sort(key=lambda i: key_fn(self.playlist[i]), reverse=self._sort_reverse)
+            matched.sort(key=lambda i: key_fn(playlist[i]), reverse=self._sort_reverse)
 
-        # Phase 3: build row data (pure Python — fast)
+        # Phase 3: build row data list (pure Python — fast)
+        _fmt_dur = self._format_duration
+        _fmt_ts = self._format_ts
+        cur_idx = self.current_index
+        is_playing = self.is_playing
+        np_tag = self._now_playing_tag
         row_data = []
         for idx in matched:
-            entry = self.playlist[idx]
+            entry = playlist[idx]
             title = entry.get('title', entry['basename'])
-            length_str = self._format_duration(entry.get('length'))
+            length_str = _fmt_dur(entry.get('length'))
             rating = entry.get('rating', 0)
             rating_str = f'+{rating}' if rating > 0 else str(rating)
             comment = entry.get('comment', '')
@@ -2047,26 +2051,25 @@ class MusicPlayer(ctk.CTk):
             liked_str = ', '.join(sorted(entry.get('liked_by', set()))) if entry.get('liked_by') else '\u2014'
             disliked_str = ', '.join(sorted(entry.get('disliked_by', set()))) if entry.get('disliked_by') else '\u2014'
             plays = entry.get('play_count', 0)
-            first_p = self._format_ts(entry.get('first_played'), relative=False)
-            last_p = self._format_ts(entry.get('last_played'), relative=True)
-            file_c = self._format_ts(entry.get('file_created'), relative=False)
-            row_tags = ()
-            if idx == self.current_index and self.is_playing:
-                row_tags = (self._now_playing_tag,)
+            first_p = _fmt_ts(entry.get('first_played'), relative=False)
+            last_p = _fmt_ts(entry.get('last_played'), relative=True)
+            file_c = _fmt_ts(entry.get('file_created'), relative=False)
+            row_tags = (np_tag,) if (idx == cur_idx and is_playing) else ()
             row_data.append((idx, (title, length_str, rating_str, comment, tags_str,
                                     liked_str, disliked_str, plays, first_p, last_p, file_c),
                              row_tags))
 
         # Phase 4: insert into treeview in chunks (keeps UI responsive)
-        CHUNK = 500
+        CHUNK = 400
+        tree_insert = self.tree.insert
+        di_append = self.display_indices.append
         self.tree.configure(selectmode='none')
         for start in range(0, len(row_data), CHUNK):
-            chunk = row_data[start:start + CHUNK]
-            for idx, vals, rtags in chunk:
-                self.tree.insert('', 'end', values=vals, tags=rtags)
-                self.display_indices.append(idx)
+            for idx, vals, rtags in row_data[start:start + CHUNK]:
+                tree_insert('', 'end', values=vals, tags=rtags)
+                di_append(idx)
             if start + CHUNK < len(row_data):
-                self.update_idletasks()
+                self.update()
         self.tree.configure(selectmode='extended')
 
         # Restore selection
@@ -2082,7 +2085,7 @@ class MusicPlayer(ctk.CTk):
 
         # Update track count
         if hasattr(self, '_track_count_lbl'):
-            total = len(self.playlist)
+            total = len(playlist)
             shown = len(self.display_indices)
             if shown == total:
                 self._track_count_lbl.configure(text=f'{total} tracks')
@@ -3100,7 +3103,22 @@ class MusicPlayer(ctk.CTk):
         else:
             self._add_tag_to_track(playlist_idx, tag)
         self._update_single_row(playlist_idx)
-        self._build_tag_bar()
+        # If tag filter is active, the track list may need to change
+        if self._active_tags:
+            self._apply_filter()
+            self._build_tag_bar()
+        else:
+            # Just check if the tag set changed and update tag bar accordingly
+            if not currently_applied:
+                # Added a tag — if it's new to the view, rebuild; otherwise skip
+                if tag not in self._tag_btn_map:
+                    self._build_tag_bar()
+            else:
+                # Removed a tag — check if any other track still has it
+                still_present = any(tag in self.playlist[i].get('tags', [])
+                                    for i in self.display_indices)
+                if not still_present:
+                    self._build_tag_bar()
 
     def _context_remove(self, playlist_idx):
         entry = self.playlist[playlist_idx]
