@@ -854,6 +854,14 @@ class MusicPlayer(ctk.CTk):
                       font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
                       command=self._random_queue_dialog).pack(side='right', padx=2)
 
+        # ── ADD-TO-QUEUE BUTTON (thin vertical strip between browse and queue) ──
+        self._btn_send_to_queue = ctk.CTkButton(
+            main_area, text='›', width=22, height=80,
+            font=ctk.CTkFont(size=20, weight='bold'),
+            fg_color='#3b3b3b', hover_color='#1f6aa5',
+            corner_radius=4, command=self._send_selected_to_queue)
+        self._btn_send_to_queue.pack(side='right', fill='y', padx=2)
+
         # ── BROWSE PANEL (fills remaining space) ──
         browse = ctk.CTkFrame(main_area, fg_color='#2b2b2b', corner_radius=8)
         browse.pack(side='right', fill='both', expand=True)
@@ -2249,6 +2257,20 @@ class MusicPlayer(ctk.CTk):
         """Add multiple tracks to the end of the play queue."""
         for idx in playlist_indices:
             self._play_queue.append(idx)
+        self._refresh_queue_listbox()
+
+    def _send_selected_to_queue(self):
+        """Add all selected tracks from the treeview to the play queue."""
+        sel = self.tree.selection()
+        if not sel:
+            return
+        all_items = self.tree.get_children()
+        for item in sel:
+            try:
+                idx = list(all_items).index(item)
+                self._play_queue.append(self.display_indices[idx])
+            except (ValueError, IndexError):
+                pass
         self._refresh_queue_listbox()
 
     def _insert_in_queue(self, playlist_idx, position=0):
