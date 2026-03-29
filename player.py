@@ -685,10 +685,11 @@ class MusicPlayer(ctk.CTk):
 
     @perf.track
     def _record_play(self, path):
+        """Record a play and return (play_count, first_played, last_played)."""
         now = datetime.now(tz=timezone.utc).isoformat()
         track_id = self._get_track_id(path)
         if not track_id:
-            return
+            return None
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute('INSERT INTO track_plays (track_id, played_at) VALUES (?, ?)', (track_id, now))
@@ -698,8 +699,12 @@ class MusicPlayer(ctk.CTk):
             ' first_played = COALESCE(first_played, ?),'
             ' last_played = ? WHERE id = ?',
             (now, now, track_id))
+        # Read back updated stats in the same connection
+        cur.execute('SELECT play_count, first_played, last_played FROM tracks WHERE id = ?', (track_id,))
+        stats = cur.fetchone()
         con.commit()
         con.close()
+        return stats
 
     def _get_track_stats(self, path):
         con = sqlite3.connect(DB_PATH)
@@ -3973,13 +3978,13 @@ class MusicPlayer(ctk.CTk):
             elapsed = time.time() - self._playback_start_time
             if elapsed >= PLAY_MIN_SECONDS:
                 path = self.playlist[self.current_index]['path']
-                self._record_play(path)
+                stats = self._record_play(path)
                 self._play_recorded = True
-                stats = self._get_track_stats(path)
-                entry = self.playlist[self.current_index]
-                entry['play_count'] = stats[0]
-                entry['first_played'] = stats[1]
-                entry['last_played'] = stats[2]
+                if stats:
+                    entry = self.playlist[self.current_index]
+                    entry['play_count'] = stats[0]
+                    entry['first_played'] = stats[1]
+                    entry['last_played'] = stats[2]
                 # Update just the single row instead of full treeview rebuild
                 self._update_single_row(self.current_index)
                 self._refresh_play_log()
