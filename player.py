@@ -1201,6 +1201,8 @@ class MusicPlayer(ctk.CTk):
 
         log_tree_frame = ctk.CTkFrame(play_log_panel, fg_color='transparent')
         log_tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 6))
+        log_tree_frame.grid_rowconfigure(0, weight=1)
+        log_tree_frame.grid_columnconfigure(0, weight=1)
 
         self._play_log_tree = ttk.Treeview(
             log_tree_frame, columns=('Title', 'Genre'), show='tree headings',
@@ -1211,15 +1213,15 @@ class MusicPlayer(ctk.CTk):
         self._play_log_tree.column('#0', width=90, anchor='w')
         self._play_log_tree.column('Title', width=120, anchor='w')
         self._play_log_tree.column('Genre', width=70, anchor='w')
-        self._play_log_tree.pack(side='left', fill='both', expand=True)
+        self._play_log_tree.grid(row=0, column=0, sticky='nsew')
         self._play_log_tree.bind('<Double-1>', self._on_play_log_double_click)
 
         log_vsb = ctk.CTkScrollbar(log_tree_frame, command=self._play_log_tree.yview)
-        log_vsb.pack(side='right', fill='y')
+        log_vsb.grid(row=0, column=1, sticky='ns')
         self._play_log_tree.config(yscrollcommand=log_vsb.set)
 
-        log_hsb = ttk.Scrollbar(play_log_panel, orient='horizontal', command=self._play_log_tree.xview)
-        log_hsb.pack(fill='x', padx=4, pady=(0, 2))
+        log_hsb = ttk.Scrollbar(log_tree_frame, orient='horizontal', command=self._play_log_tree.xview)
+        log_hsb.grid(row=1, column=0, sticky='ew')
         self._play_log_tree.config(xscrollcommand=log_hsb.set)
 
         # Add panels to the vertical PanedWindow (queue | play log)
@@ -1384,12 +1386,7 @@ class MusicPlayer(ctk.CTk):
                                            height=26, font=ctk.CTkFont(size=11))
         self._search_entry.pack(fill='x', pady=(0, 2))
 
-        # Track count label
-        self._track_count_lbl = ctk.CTkLabel(tree_frame, text='0 tracks',
-                                              font=ctk.CTkFont(size=10),
-                                              text_color='#888888', anchor='w')
-        self._track_count_lbl.pack(fill='x', pady=(0, 2))
-        # Perf info — stored for UI callback, will be shown via track count label
+        # Perf info — stored for UI callback
         self._perf_text = ''
         def _perf_ui_update(method_name, ms):
             short = method_name.split('.')[-1] if '.' in method_name else method_name
@@ -1403,7 +1400,14 @@ class MusicPlayer(ctk.CTk):
 
         self._all_columns = ('Title', 'Artist', 'Album', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
                               'Plays', 'First Played', 'Last Played', 'File Created')
-        self.tree = ttk.Treeview(tree_frame,
+
+        # Grid-based sub-frame for treeview + scrollbars (avoids pack side conflicts)
+        tv_wrapper = ctk.CTkFrame(tree_frame, fg_color='transparent')
+        tv_wrapper.pack(fill='both', expand=True)
+        tv_wrapper.grid_rowconfigure(0, weight=1)
+        tv_wrapper.grid_columnconfigure(0, weight=1)
+
+        self.tree = ttk.Treeview(tv_wrapper,
                                  columns=self._all_columns,
                                  show='headings', height=8)
         self.tree.column('Title', width=180, anchor='w')
@@ -1422,26 +1426,31 @@ class MusicPlayer(ctk.CTk):
         for col in self._all_columns:
             self.tree.heading(col, text=col,
                               command=lambda c=col: self._sort_by_column(c))
-        self.tree.pack(side='left', fill='both', expand=True)
+        self.tree.grid(row=0, column=0, sticky='nsew')
         self.tree.tag_configure(self._now_playing_tag, background='#1a3a1a', foreground='#5dff5d')
         self.tree.bind('<Double-1>', self._on_double)
         self.tree.bind('<<TreeviewSelect>>', self._on_select)
         self.tree.bind('<Button-3>', self._on_right_click)
 
-        sb = ctk.CTkScrollbar(tree_frame, command=self.tree.yview)
-        sb.pack(side='left', fill='y')
+        sb = ctk.CTkScrollbar(tv_wrapper, command=self.tree.yview)
+        sb.grid(row=0, column=1, sticky='ns')
         self.tree.config(yscrollcommand=sb.set)
 
-        # Horizontal scrollbar for track listing
-        tree_hsb = ttk.Scrollbar(tree_frame, orient='horizontal', command=self.tree.xview)
-        tree_hsb.pack(side='bottom', fill='x')
+        tree_hsb = ttk.Scrollbar(tv_wrapper, orient='horizontal', command=self.tree.xview)
+        tree_hsb.grid(row=1, column=0, sticky='ew')
         self.tree.config(xscrollcommand=tree_hsb.set)
 
-        # ── Performance status bar (below track listing) ──
-        self._perf_status_lbl = ctk.CTkLabel(tree_frame, text='',
+        # ── Status row below track listing (track count + perf) ──
+        status_row = ctk.CTkFrame(tree_frame, fg_color='transparent')
+        status_row.pack(fill='x', pady=(1, 0))
+        self._track_count_lbl = ctk.CTkLabel(status_row, text='0 tracks',
+                                              font=ctk.CTkFont(size=10),
+                                              text_color='#888888', anchor='w')
+        self._track_count_lbl.pack(side='left')
+        self._perf_status_lbl = ctk.CTkLabel(status_row, text='',
                                               font=ctk.CTkFont(size=9),
-                                              text_color='#666666', anchor='w')
-        self._perf_status_lbl.pack(fill='x', pady=(0, 0))
+                                              text_color='#666666', anchor='e')
+        self._perf_status_lbl.pack(side='right')
 
         # ── Tooltips for all buttons ──
         _add_tooltip(self.btn_mute, 'Mute / Unmute')
@@ -3298,21 +3307,17 @@ class MusicPlayer(ctk.CTk):
         self._log_action('toggle_lite_mode', f'{"on" if self._lite_mode else "off"}')
 
         if self._lite_mode:
-            # Hide filter rows
-            self._filter_row1.pack_forget()
-            self._filter_row2.pack_forget()
-            # Hide tag bar
+            # Hide filter area and tag bar
+            self._filter_container.pack_forget()
             if self._tag_bar_visible:
                 self._tag_bar_wrapper.configure(height=0)
             # Hide left sidebar by shrinking it in the paned window
             self._main_paned.paneconfigure(self._left_sidebar, hide=True)
         else:
-            # Re-show filter rows in correct order: before the tree_frame area
-            # Forget all browse children, then re-pack in proper order
+            # Re-show in correct order: forget all browse children, then re-pack
             for child in self._browse_panel.winfo_children():
                 child.pack_forget()
-            self._filter_row1.pack(fill='x', padx=6, pady=(4, 1))
-            self._filter_row2.pack(fill='x', padx=6, pady=(0, 2))
+            self._filter_container.pack(fill='x', padx=6, pady=(4, 2))
             self._tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 4))
             # Show left sidebar
             self._main_paned.paneconfigure(self._left_sidebar, hide=False)
