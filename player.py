@@ -3213,19 +3213,22 @@ class MusicPlayer(ctk.CTk):
                 weight_list.append(weights.get(g, 1))
 
             queue = []
+            queue_set = set()
             for _ in range(size):
                 if not genre_list:
                     break
                 chosen_genre = _random.choices(genre_list, weights=weight_list, k=1)[0]
                 pool = eligible_by_genre.get(chosen_genre, [])
-                available = [t for t in pool if t not in queue]
+                available = [t for t in pool if t not in queue_set]
                 if not available:
                     # Remove exhausted genre
                     gi = genre_list.index(chosen_genre)
                     genre_list.pop(gi)
                     weight_list.pop(gi)
                     continue
-                queue.append(_random.choice(available))
+                pick = _random.choice(available)
+                queue.append(pick)
+                queue_set.add(pick)
 
             self._play_queue = queue
             self._refresh_queue_listbox()
