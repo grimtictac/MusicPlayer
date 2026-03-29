@@ -675,7 +675,7 @@ class MusicPlayer(ctk.CTk):
         self._apply_filter()
         self._build_tag_bar()
         self._refresh_play_log()
-        self.lbl_now_playing.configure(text=f'\u266b  {len(self.playlist)} tracks loaded')
+        self.lbl_now_playing.configure(text=f'{len(self.playlist)} tracks loaded')
 
     def _ensure_track_in_db(self, path, title='', genre='Unknown', comment='', length=None, artist='', album=''):
         """Ensure a track exists in the DB. path is the relative (stored) path."""
@@ -1028,7 +1028,7 @@ class MusicPlayer(ctk.CTk):
         _content = ctk.CTkFrame(_outer, fg_color='transparent')
         _content.pack(side='left', fill='both', expand=True)
 
-        # ═══ TOP BAR ═══
+        # ═══ ROW 1 — INFO BAR ═══
         top_bar = ctk.CTkFrame(_content, height=38, fg_color='#1a1a2e')
         top_bar.pack(fill='x')
         top_bar.pack_propagate(False)
@@ -1037,28 +1037,31 @@ class MusicPlayer(ctk.CTk):
                                       font=ctk.CTkFont(size=18), command=self._show_menu)
         self.btn_menu.pack(side='left', padx=(8, 4), pady=4)
 
-        self.lbl_now_playing = ctk.CTkLabel(top_bar, text='\u266b  Not Playing',
+        self.lbl_now_playing = ctk.CTkLabel(top_bar, text='Not Playing',
                                             font=ctk.CTkFont(size=16, weight='bold'))
         self.lbl_now_playing.pack(side='left', fill='x', expand=True, padx=8)
 
-        # ── Like / Dislike buttons (top-right) ──
-        self._btn_thumbs_down = ctk.CTkButton(
-            top_bar, text='\U0001f44e', width=40, height=30,
-            font=ctk.CTkFont(size=18), fg_color='#c0392b', hover_color='#e74c3c',
-            command=lambda: self._quick_vote(-1))
-        self._btn_thumbs_down.pack(side='right', padx=(4, 8), pady=4)
-        self._btn_thumbs_down.bind('<Double-1>',
-            lambda e: (e.widget.after(1, lambda: self._ask_voter_and_vote(-1)), 'break'))
+        self._lbl_genre = ctk.CTkLabel(top_bar, text='',
+                                       font=ctk.CTkFont(size=11),
+                                       fg_color='#2b2b2b', corner_radius=6,
+                                       text_color='#aaaaaa', width=0)
+        self._lbl_genre.pack(side='left', padx=(0, 8), pady=6)
 
+        self._lbl_rating = ctk.CTkLabel(top_bar, text='\u2014',
+                                         font=ctk.CTkFont(size=16, weight='bold'),
+                                         text_color='#888888', width=36)
+        self._lbl_rating.pack(side='left', padx=(4, 4), pady=4)
+
+        # ── Like / Dislike + Voter (right side) ──
         self._btn_thumbs_up = ctk.CTkButton(
             top_bar, text='\U0001f44d', width=40, height=30,
-            font=ctk.CTkFont(size=18), fg_color='#27ae60', hover_color='#2ecc71',
+            font=ctk.CTkFont(size=18), fg_color='#f1c40f', hover_color='#f39c12',
+            text_color='#000000',
             command=lambda: self._quick_vote(+1))
-        self._btn_thumbs_up.pack(side='right', padx=0, pady=4)
+        self._btn_thumbs_up.pack(side='right', padx=(0, 8), pady=4)
         self._btn_thumbs_up.bind('<Double-1>',
             lambda e: (e.widget.after(1, lambda: self._ask_voter_and_vote(+1)), 'break'))
 
-        # Voter dropdown
         self._voter_var = tk.StringVar(value='')
         self._voter_dropdown = ctk.CTkOptionMenu(
             top_bar, variable=self._voter_var,
@@ -1066,31 +1069,45 @@ class MusicPlayer(ctk.CTk):
             font=ctk.CTkFont(size=10),
             fg_color='#3b3b3b', button_color='#4a4a4a',
             dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5')
-        self._voter_dropdown.pack(side='right', padx=(4, 4), pady=4)
+        self._voter_dropdown.pack(side='right', padx=4, pady=4)
         self._voter_dropdown.set('(anonymous)')
 
-        self._lbl_rating = ctk.CTkLabel(top_bar, text='\u2014',
-                                         font=ctk.CTkFont(size=16, weight='bold'),
-                                         text_color='#888888', width=36)
-        self._lbl_rating.pack(side='right', padx=(4, 4), pady=4)
+        self._btn_thumbs_down = ctk.CTkButton(
+            top_bar, text='\U0001f44e', width=40, height=30,
+            font=ctk.CTkFont(size=18), fg_color='#f1c40f', hover_color='#f39c12',
+            text_color='#000000',
+            command=lambda: self._quick_vote(-1))
+        self._btn_thumbs_down.pack(side='right', padx=0, pady=4)
+        self._btn_thumbs_down.bind('<Double-1>',
+            lambda e: (e.widget.after(1, lambda: self._ask_voter_and_vote(-1)), 'break'))
 
         self.load_progress = ctk.CTkProgressBar(top_bar, mode='determinate', width=200)
         self.load_progress.set(0)
         self.lbl_load = ctk.CTkLabel(top_bar, text='', font=ctk.CTkFont(size=10))
 
-        # ═══ SCRUB BAR (under Now Playing) ═══
-        scrub_frame = ctk.CTkFrame(_content, fg_color='#1a1a2e')
-        scrub_frame.pack(fill='x', padx=0)
+        # ═══ ROW 2 — CONTROLS BAR (transport + scrub + speed) ═══
+        self._controls_frame = ctk.CTkFrame(_content, fg_color='#1a1a2e')
+        self._controls_frame.pack(fill='x')
 
-        scrub_inner = ctk.CTkFrame(scrub_frame, fg_color='transparent')
-        scrub_inner.pack(fill='x', padx=14, pady=(1, 3))
+        ctrl_inner = ctk.CTkFrame(self._controls_frame, fg_color='transparent')
+        ctrl_inner.pack(fill='x', padx=10, pady=(2, 4))
 
-        self.lbl_time_cur = ctk.CTkLabel(scrub_inner, text='0:00', font=ctk.CTkFont(size=11), width=44)
+        self.btn_play = ctk.CTkButton(ctrl_inner, text='\u25b6', width=52, height=34,
+                                      font=ctk.CTkFont(size=20), command=self.play_pause,
+                                      fg_color='#1f6aa5', hover_color='#1a5a8a')
+        self.btn_play.pack(side='left', padx=(0, 3))
+
+        self.btn_stop = ctk.CTkButton(ctrl_inner, text='\u23f9', width=44, height=34,
+                                      font=ctk.CTkFont(size=20), command=self.stop,
+                                      fg_color='#c0392b', hover_color='#e74c3c')
+        self.btn_stop.pack(side='left', padx=(0, 6))
+
+        self.lbl_time_cur = ctk.CTkLabel(ctrl_inner, text='0:00', font=ctk.CTkFont(size=11), width=44)
         self.lbl_time_cur.pack(side='left')
 
         self._scrub_var = tk.DoubleVar(value=0)
         self._user_scrubbing = False
-        self.scrub_slider = ctk.CTkSlider(scrub_inner, from_=0, to=1.0, variable=self._scrub_var,
+        self.scrub_slider = ctk.CTkSlider(ctrl_inner, from_=0, to=1.0, variable=self._scrub_var,
                                           command=self._on_scrub, height=16,
                                           button_color='#00bcd4', button_hover_color='#26c6da',
                                           progress_color='#00bcd4')
@@ -1099,43 +1116,23 @@ class MusicPlayer(ctk.CTk):
         self.scrub_slider.bind('<ButtonPress-1>', lambda e: setattr(self, '_user_scrubbing', True))
         self.scrub_slider.bind('<ButtonRelease-1>', self._on_scrub_release)
 
-        self.lbl_time_total = ctk.CTkLabel(scrub_inner, text='0:00', font=ctk.CTkFont(size=11), width=44)
+        self.lbl_time_total = ctk.CTkLabel(ctrl_inner, text='0:00', font=ctk.CTkFont(size=11), width=44)
         self.lbl_time_total.pack(side='left')
 
-        # ═══ PLAY CONTROLS (under scrub bar) ═══
-        self._controls_frame = ctk.CTkFrame(_content, fg_color='#1a1a2e')
-        self._controls_frame.pack(fill='x')
-
-        btn_row = ctk.CTkFrame(self._controls_frame, fg_color='transparent')
-        btn_row.pack(fill='x', padx=14, pady=(2, 4))
-        btn_row.columnconfigure(0, weight=2)
-        btn_row.columnconfigure(1, weight=1)
-        btn_row.columnconfigure(2, weight=0)
-
-        self.btn_play = ctk.CTkButton(btn_row, text='\u25b6', height=36,
-                                      font=ctk.CTkFont(size=22), command=self.play_pause,
-                                      fg_color='#1f6aa5', hover_color='#1a5a8a')
-        self.btn_play.grid(row=0, column=0, sticky='ew', padx=(0, 3))
-
-        self.btn_stop = ctk.CTkButton(btn_row, text='\u23f9', height=36,
-                                      font=ctk.CTkFont(size=22), command=self.stop,
-                                      fg_color='#c0392b', hover_color='#e74c3c')
-        self.btn_stop.grid(row=0, column=1, sticky='ew', padx=(3, 3))
-
         # Speed control
-        self._speed_frame = ctk.CTkFrame(btn_row, fg_color='#2b2b2b', corner_radius=8)
-        self._speed_frame.grid(row=0, column=2, sticky='ns', padx=(3, 0))
+        self._speed_frame = ctk.CTkFrame(ctrl_inner, fg_color='#2b2b2b', corner_radius=8)
+        self._speed_frame.pack(side='left', padx=(6, 0))
 
         ctk.CTkLabel(self._speed_frame, text='Speed', font=ctk.CTkFont(size=8),
                      text_color='#888888').pack(pady=(2, 0))
         self._speed_var = tk.DoubleVar(value=1.0)
         self._speed_label = ctk.CTkLabel(self._speed_frame, text='1.0×', font=ctk.CTkFont(size=10, weight='bold'))
         self._speed_label.pack(pady=(0, 1))
-        speed_down = ctk.CTkButton(self._speed_frame, text='−', width=26, height=18,
+        speed_down = ctk.CTkButton(self._speed_frame, text='\u2212', width=26, height=18,
                                     font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
                                     command=self._speed_down)
         speed_down.pack(side='left', padx=(3, 1), pady=(0, 2))
-        speed_reset = ctk.CTkButton(self._speed_frame, text='1×', width=26, height=18,
+        speed_reset = ctk.CTkButton(self._speed_frame, text='1\u00d7', width=26, height=18,
                                      font=ctk.CTkFont(size=9), fg_color='#3b3b3b',
                                      command=self._speed_reset)
         speed_reset.pack(side='left', padx=1, pady=(0, 2))
@@ -1702,7 +1699,7 @@ class MusicPlayer(ctk.CTk):
         self._log_action('scan_library', self._library_root)
         exts = ('.mp3', '.wav', '.ogg', '.flac')
 
-        self.lbl_now_playing.configure(text='\u266b  Scanning library\u2026')
+        self.lbl_now_playing.configure(text='Scanning library\u2026')
         self.update_idletasks()
         audio_files = []
         for root, _, files in os.walk(self._library_root):
@@ -1713,7 +1710,7 @@ class MusicPlayer(ctk.CTk):
         total = len(audio_files)
         if total == 0:
             messagebox.showinfo('No files', 'No supported audio files found in library root.')
-            self.lbl_now_playing.configure(text='\u266b  Not Playing')
+            self.lbl_now_playing.configure(text='Not Playing')
             return
 
         self.load_progress.set(0)
@@ -1739,7 +1736,7 @@ class MusicPlayer(ctk.CTk):
             self.current_index = 0
         self._build_genre_list()
         self._apply_filter()
-        self.lbl_now_playing.configure(text=f'\u266b  Added {added} tracks ({total} scanned)')
+        self.lbl_now_playing.configure(text=f'Added {added} tracks ({total} scanned)')
 
     # ── Genre dropdown ─────────────────────────────────
 
@@ -2734,7 +2731,7 @@ class MusicPlayer(ctk.CTk):
         self._log_action('add_folder', folder)
         exts = ('.mp3', '.wav', '.ogg', '.flac')
 
-        self.lbl_now_playing.configure(text='\u266b  Scanning folder\u2026')
+        self.lbl_now_playing.configure(text='Scanning folder\u2026')
         self.update_idletasks()
         audio_files = []
         for root, _, files in os.walk(folder):
@@ -2745,7 +2742,7 @@ class MusicPlayer(ctk.CTk):
         total = len(audio_files)
         if total == 0:
             messagebox.showinfo('No files', 'No supported audio files found in folder')
-            self.lbl_now_playing.configure(text='\u266b  Not Playing')
+            self.lbl_now_playing.configure(text='Not Playing')
             return
 
         self.load_progress.set(0)
@@ -2771,7 +2768,7 @@ class MusicPlayer(ctk.CTk):
             self.current_index = 0
         self._build_genre_list()
         self._apply_filter()
-        self.lbl_now_playing.configure(text=f'\u266b  Added {added} tracks')
+        self.lbl_now_playing.configure(text=f'Added {added} tracks')
 
     def _add_path(self, abs_path):
         """Add a track by its absolute path. Stores a relative path internally."""
@@ -2915,15 +2912,20 @@ class MusicPlayer(ctk.CTk):
 
     def _update_now_playing(self, text=None):
         if text:
-            self.lbl_now_playing.configure(text=f'\u266b  {text}')
+            self.lbl_now_playing.configure(text=text)
+            self._lbl_genre.configure(text='')
         elif self.current_index is not None:
             entry = self.playlist[self.current_index]
             title = entry.get('title', entry['basename'])
             genre = entry.get('genre', '')
-            display = f'{title}  \u2014  {genre}' if genre and genre != 'Unknown' else title
-            self.lbl_now_playing.configure(text=f'\u266b  {display}')
+            self.lbl_now_playing.configure(text=title)
+            if genre and genre != 'Unknown':
+                self._lbl_genre.configure(text=f'  {genre}  ')
+            else:
+                self._lbl_genre.configure(text='')
         else:
-            self.lbl_now_playing.configure(text='\u266b  Not Playing')
+            self.lbl_now_playing.configure(text='Not Playing')
+            self._lbl_genre.configure(text='')
         self._update_now_playing_highlight()
         self._update_rating_display()
 
