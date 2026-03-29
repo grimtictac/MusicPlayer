@@ -823,6 +823,12 @@ class MusicPlayer(ctk.CTk):
                                   command=self._speed_up)
         speed_up.pack(side='left', padx=(1, 4), pady=(0, 4))
 
+        self._auto_reset_speed = tk.BooleanVar(value=True)
+        _cb_auto_reset = ctk.CTkCheckBox(speed_frame, text='Auto', variable=self._auto_reset_speed,
+                                          font=ctk.CTkFont(size=9), width=20, height=16,
+                                          checkbox_width=16, checkbox_height=16)
+        _cb_auto_reset.pack(pady=(0, 4))
+
         # ═══ PLAY NOW BAR (under play controls, hidden until track selected) ═══
         self._play_bar = ctk.CTkFrame(_content, fg_color='transparent')
         self.btn_play_now = ctk.CTkButton(self._play_bar, text='\u25b6  Play Now', height=44,
@@ -1092,6 +1098,7 @@ class MusicPlayer(ctk.CTk):
         _add_tooltip(speed_down, 'Decrease speed')
         _add_tooltip(speed_reset, 'Reset speed to 1×')
         _add_tooltip(speed_up, 'Increase speed')
+        _add_tooltip(_cb_auto_reset, 'Auto-reset speed to 1× when song changes')
         _add_tooltip(_btn_clear_queue, 'Clear queue')
         _add_tooltip(_btn_q_up, 'Move up in queue')
         _add_tooltip(_btn_q_down, 'Move down in queue')
@@ -2210,6 +2217,9 @@ class MusicPlayer(ctk.CTk):
     def _next_track(self):
         if not self.playlist:
             return
+        # Auto-reset speed to 1.0× if enabled
+        if self._auto_reset_speed.get() and self._speed_var.get() != 1.0:
+            self._speed_reset()
         # Check play queue first
         queue_next = self._pop_queue()
         if queue_next is not None:
