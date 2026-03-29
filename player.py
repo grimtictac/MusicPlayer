@@ -1439,7 +1439,8 @@ class MusicPlayer(ctk.CTk):
             # Update only the affected rows instead of full rebuild
             for pl_idx in updated_indices:
                 self._update_single_row(pl_idx)
-            self._build_tag_bar()
+            # Defer tag bar rebuild to avoid freezing under a modal grab
+            self.after(0, self._build_tag_bar)
             if callback:
                 callback()
 
@@ -1455,8 +1456,9 @@ class MusicPlayer(ctk.CTk):
             if tag in entry.get('tags', []):
                 entry['tags'].remove(tag)
         self._active_tags.discard(tag)
-        self._apply_filter()
-        self._build_tag_bar()
+        # Defer heavy operations to avoid freezing under a modal grab
+        self.after(0, self._apply_filter)
+        self.after(0, self._build_tag_bar)
 
     def _rename_tag_globally(self, old_tag, new_tag, parent_window=None):
         """Rename a tag across all tracks."""
@@ -1482,8 +1484,9 @@ class MusicPlayer(ctk.CTk):
         if old_tag in self._active_tags:
             self._active_tags.discard(old_tag)
             self._active_tags.add(new_tag)
-        self._apply_filter()
-        self._build_tag_bar()
+        # Defer heavy operations to avoid freezing under a modal grab
+        self.after(0, self._apply_filter)
+        self.after(0, self._build_tag_bar)
 
     # ── Settings dialog (Genres + Tags) ──────────────────
 
