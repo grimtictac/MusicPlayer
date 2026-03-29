@@ -2770,8 +2770,20 @@ class MusicPlayer(ctk.CTk):
         if not multi:
             menu.add_command(label='\u270f  Edit Title\u2026',
                              command=lambda: self._context_edit_title(playlist_idx))
-            menu.add_command(label='\U0001f3b5  Change Genre\u2026',
-                             command=lambda: self._context_edit_genre(playlist_idx))
+
+            # Genre submenu
+            genre_menu = tk.Menu(menu, tearoff=0)
+            current_genre = entry.get('genre', 'Unknown')
+            for genre in sorted(self.genres):
+                is_current = genre == current_genre
+                label = f'\u2713  {genre}' if is_current else f'     {genre}'
+                genre_menu.add_command(label=label,
+                    command=lambda g=genre: self._context_set_genre(playlist_idx, g))
+            genre_menu.add_separator()
+            genre_menu.add_command(label='Other…',
+                command=lambda: self._context_edit_genre(playlist_idx))
+            menu.add_cascade(label='\U0001f3b5  Genre', menu=genre_menu)
+
             menu.add_command(label='\u270f  Edit Comment\u2026',
                              command=lambda: self._context_edit_comment(playlist_idx))
 
@@ -2889,6 +2901,18 @@ class MusicPlayer(ctk.CTk):
             con.commit()
             con.close()
             self._apply_filter()
+
+    def _context_set_genre(self, playlist_idx, new_genre):
+        """Quick-set genre from the submenu without opening a dialog."""
+        entry = self.playlist[playlist_idx]
+        entry['genre'] = new_genre
+        self.genres.add(new_genre)
+        con = sqlite3.connect(DB_PATH)
+        con.execute("UPDATE tracks SET genre = ? WHERE file_path = ?", (new_genre, entry['path']))
+        con.commit()
+        con.close()
+        self._build_genre_list()
+        self._apply_filter()
 
     def _context_edit_genre(self, playlist_idx):
         entry = self.playlist[playlist_idx]
