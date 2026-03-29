@@ -380,10 +380,8 @@ class MusicPlayer(ctk.CTk):
         con.close()
 
         tags_by_path = {}
-        tags_before = set(self._all_tags)
         for fpath, tag in tag_rows:
             tags_by_path.setdefault(fpath, []).append(tag)
-            self._all_tags.add(tag)
 
         votes_by_path = {}  # path -> {'rating': int, 'liked_by': set, 'disliked_by': set}
         for fpath, vote, voter in vote_rows:
@@ -429,9 +427,6 @@ class MusicPlayer(ctk.CTk):
         self._rebuild_liked_by_dropdown()
         self._apply_filter()
         self._build_tag_bar()
-        # Persist any DB-discovered tags that weren't in the XML config
-        if self._all_tags != tags_before:
-            self._save_config_to_xml()
         self.lbl_now_playing.configure(text=f'\u266b  {len(self.playlist)} tracks loaded')
 
     def _ensure_track_in_db(self, path, title='', genre='Unknown', comment='', length=None):
@@ -555,7 +550,6 @@ class MusicPlayer(ctk.CTk):
         if tag in entry.get('tags', []):
             return
         entry.setdefault('tags', []).append(tag)
-        self._all_tags.add(tag)
         track_id = self._get_track_id(entry['path'])
         if track_id:
             con = sqlite3.connect(DB_PATH)

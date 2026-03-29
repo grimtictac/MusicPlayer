@@ -22,6 +22,17 @@
     <duration label="4 – 7 min" lo="240" hi="420" />
     <duration label="&gt; 7 min" lo="420" />
   </length_filter_durations>
+  <tags>
+    <tag name="advanced" />
+    <tag name="beginner" />
+    <tag name="boop" />
+    <tag name="class" />
+    <tag name="classic" />
+    <tag name="drill" />
+    <tag name="instrumental" />
+    <tag name="playable" />
+    <tag name="social" />
+  </tags>
   <playlists>
     <playlist name="Shaun">
       <track>/home/shauns/Music/LaptopBakDec25/Dec25Music/Dec22/Genre/Rumba/Dj Maksy &amp; Carlinhos Brown - Ela samba Rb25.mp3</track>
