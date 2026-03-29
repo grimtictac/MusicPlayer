@@ -596,6 +596,7 @@ class MusicPlayer(ctk.CTk):
         self._rebuild_liked_by_dropdown()
         self._apply_filter()
         self._build_tag_bar()
+        self._refresh_play_log()
         self.lbl_now_playing.configure(text=f'\u266b  {len(self.playlist)} tracks loaded')
 
     def _ensure_track_in_db(self, path, title='', genre='Unknown', comment='', length=None):
@@ -1071,10 +1072,14 @@ class MusicPlayer(ctk.CTk):
         main_area = ctk.CTkFrame(_content, fg_color='transparent')
         main_area.pack(fill='both', expand=True, padx=4, pady=(4, 2))
 
-        # ── PLAY QUEUE PANEL (right side of browse area) ──
-        queue_panel = ctk.CTkFrame(main_area, width=200, fg_color='#2b2b2b', corner_radius=8)
-        queue_panel.pack(side='right', fill='y', padx=(4, 0))
-        queue_panel.pack_propagate(False)
+        # ── PLAY QUEUE + PLAY LOG CONTAINER (right side of browse area) ──
+        right_container = ctk.CTkFrame(main_area, width=200, fg_color='transparent')
+        right_container.pack(side='right', fill='y', padx=(4, 0))
+        right_container.pack_propagate(False)
+
+        # ── PLAY QUEUE PANEL (top half) ──
+        queue_panel = ctk.CTkFrame(right_container, fg_color='#2b2b2b', corner_radius=8)
+        queue_panel.pack(fill='both', expand=True, pady=(0, 2))
 
         queue_header = ctk.CTkFrame(queue_panel, fg_color='transparent')
         queue_header.pack(fill='x', padx=6, pady=(6, 2))
@@ -1117,6 +1122,37 @@ class MusicPlayer(ctk.CTk):
                       font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
                       command=self._random_queue_dialog)
         _btn_q_random.pack(side='right', padx=2)
+
+        # ── PLAY LOG PANEL (below queue) ──
+        play_log_panel = ctk.CTkFrame(right_container, fg_color='#2b2b2b', corner_radius=8)
+        play_log_panel.pack(fill='both', expand=True, pady=(2, 0))
+
+        play_log_header = ctk.CTkFrame(play_log_panel, fg_color='transparent')
+        play_log_header.pack(fill='x', padx=6, pady=(6, 2))
+        ctk.CTkLabel(play_log_header, text='Play Log',
+                     font=ctk.CTkFont(size=12, weight='bold')).pack(side='left')
+        _btn_refresh_log = ctk.CTkButton(play_log_header, text='⟳', width=24, height=22,
+                      font=ctk.CTkFont(size=12), fg_color='transparent',
+                      hover_color='#3b3b3b', command=self._refresh_play_log)
+        _btn_refresh_log.pack(side='right')
+
+        log_tree_frame = ctk.CTkFrame(play_log_panel, fg_color='transparent')
+        log_tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 6))
+
+        self._play_log_tree = ttk.Treeview(
+            log_tree_frame, columns=('Title', 'Genre'), show='tree headings',
+            height=6)
+        self._play_log_tree.heading('#0', text='Date', anchor='w')
+        self._play_log_tree.heading('Title', text='Title')
+        self._play_log_tree.heading('Genre', text='Genre')
+        self._play_log_tree.column('#0', width=90, anchor='w')
+        self._play_log_tree.column('Title', width=100, anchor='w')
+        self._play_log_tree.column('Genre', width=60, anchor='w')
+        self._play_log_tree.pack(side='left', fill='both', expand=True)
+
+        log_sb = ctk.CTkScrollbar(log_tree_frame, command=self._play_log_tree.yview)
+        log_sb.pack(side='right', fill='y')
+        self._play_log_tree.config(yscrollcommand=log_sb.set)
 
         # ── ADD-TO-QUEUE BUTTON (thin vertical strip between browse and queue) ──
         self._btn_send_to_queue = ctk.CTkButton(
@@ -2993,6 +3029,38 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(btn_row, text='Generate Queue', fg_color='#1f6aa5',
                       command=generate).pack(side='right', padx=4)
 
+    # ── Play log ──────────────────────────────────────────
+
+    def _refresh_play_log(self):
+        """Refresh the play log treeview with play history grouped by date."""
+        tree = self._play_log_tree
+        tree.delete(*tree.get_children())
+
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        cur.execute("""
+            SELECT tp.played_at, t.title, t.genre
+            FROM track_plays tp
+            JOIN tracks t ON t.id = tp.track_id
+            ORDER BY tp.played_at DESC
+            LIMIT 500
+        """)
+        rows = cur.fetchall()
+        con.close()
+
+        # Group by date
+        date_nodes = {}  # date_str → tree item id
+        for played_at, title, genre in rows:
+            try:
+                dt = datetime.fromisoformat(played_at).astimezone(tz=None)
+                date_str = dt.strftime('%Y-%m-%d')
+            except Exception:
+                date_str = str(played_at)[:10]
+            if date_str not in date_nodes:
+                date_nodes[date_str] = tree.insert('', 'end', text=date_str, open=(len(date_nodes) == 0))
+            parent = date_nodes[date_str]
+            tree.insert(parent, 'end', text='', values=(title or '?', genre or 'Unknown'))
+
     # ── Playlist management ────────────────────────────
 
     def _refresh_playlist_listbox(self):
@@ -3582,6 +3650,7 @@ class MusicPlayer(ctk.CTk):
                 entry['last_played'] = stats[2]
                 # Update just the single row instead of full treeview rebuild
                 self._update_single_row(self.current_index)
+                self._refresh_play_log()
 
         if not is_playing and self._last_action == 'playing' and not self.is_paused:
             # Guard: don't auto-advance within 1.5s of play being issued (VLC async startup)
