@@ -49,6 +49,7 @@ class PerfTracker:
     def __init__(self):
         self.stats = {}          # method_name → {calls, total, min, max, last}
         self._ui_callback = None  # set to a callable(method_name, ms) to update UI
+        self.last_action = ''    # last user action context for perf logging
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         self._log_path = os.path.join(_PERF_LOG_DIR, f'perf_{ts}.log')
         self._logger = logging.getLogger('perf')
@@ -92,7 +93,8 @@ class PerfTracker:
                     s['max'] = elapsed
                 # Only log noteworthy calls (> 1ms) to reduce noise
                 if not quiet and elapsed > 1.0:
-                    self._logger.info(f'{name}: {elapsed:.1f}ms')
+                    ctx = f' [{self.last_action}]' if self.last_action else ''
+                    self._logger.info(f'{name}: {elapsed:.1f}ms{ctx}')
                 if self._ui_callback:
                     try:
                         self._ui_callback(name, elapsed)
@@ -471,7 +473,8 @@ class MusicPlayer(ctk.CTk):
     # ── Audit trail ──────────────────────────────────────
 
     def _log_action(self, action, detail=''):
-        """Record a user action in the audit_log table."""
+        """Record a user action in the audit_log table and set perf context."""
+        perf.last_action = action
         now = datetime.now(tz=timezone.utc).isoformat()
         try:
             con = sqlite3.connect(DB_PATH)
