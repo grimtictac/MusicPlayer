@@ -70,6 +70,7 @@ class MusicPlayer(ctk.CTk):
         super().__init__()
         self.title('Python Music Player')
         self.geometry('1400x750')
+        self.minsize(900, 500)
 
         ctk.set_appearance_mode('dark')
         ctk.set_default_color_theme('blue')
@@ -732,32 +733,32 @@ class MusicPlayer(ctk.CTk):
         _content.pack(side='left', fill='both', expand=True)
 
         # ═══ TOP BAR ═══
-        top_bar = ctk.CTkFrame(_content, height=50, fg_color='#1a1a2e')
+        top_bar = ctk.CTkFrame(_content, height=38, fg_color='#1a1a2e')
         top_bar.pack(fill='x')
         top_bar.pack_propagate(False)
 
-        self.btn_menu = ctk.CTkButton(top_bar, text='\u2630', width=45, height=36,
-                                      font=ctk.CTkFont(size=20), command=self._show_menu)
-        self.btn_menu.pack(side='left', padx=(10, 6), pady=7)
+        self.btn_menu = ctk.CTkButton(top_bar, text='\u2630', width=40, height=30,
+                                      font=ctk.CTkFont(size=18), command=self._show_menu)
+        self.btn_menu.pack(side='left', padx=(8, 4), pady=4)
 
         self.lbl_now_playing = ctk.CTkLabel(top_bar, text='\u266b  Not Playing',
-                                            font=ctk.CTkFont(size=20, weight='bold'))
-        self.lbl_now_playing.pack(side='left', fill='x', expand=True, padx=10)
+                                            font=ctk.CTkFont(size=16, weight='bold'))
+        self.lbl_now_playing.pack(side='left', fill='x', expand=True, padx=8)
 
         # ── Like / Dislike buttons (top-right) ──
         self._btn_thumbs_down = ctk.CTkButton(
-            top_bar, text='\U0001f44e', width=50, height=36,
-            font=ctk.CTkFont(size=22), fg_color='#c0392b', hover_color='#e74c3c',
+            top_bar, text='\U0001f44e', width=40, height=30,
+            font=ctk.CTkFont(size=18), fg_color='#c0392b', hover_color='#e74c3c',
             command=lambda: self._quick_vote(-1))
-        self._btn_thumbs_down.pack(side='right', padx=(4, 10), pady=7)
+        self._btn_thumbs_down.pack(side='right', padx=(4, 8), pady=4)
         self._btn_thumbs_down.bind('<Double-1>',
             lambda e: (e.widget.after(1, lambda: self._ask_voter_and_vote(-1)), 'break'))
 
         self._btn_thumbs_up = ctk.CTkButton(
-            top_bar, text='\U0001f44d', width=50, height=36,
-            font=ctk.CTkFont(size=22), fg_color='#27ae60', hover_color='#2ecc71',
+            top_bar, text='\U0001f44d', width=40, height=30,
+            font=ctk.CTkFont(size=18), fg_color='#27ae60', hover_color='#2ecc71',
             command=lambda: self._quick_vote(+1))
-        self._btn_thumbs_up.pack(side='right', padx=0, pady=7)
+        self._btn_thumbs_up.pack(side='right', padx=0, pady=4)
         self._btn_thumbs_up.bind('<Double-1>',
             lambda e: (e.widget.after(1, lambda: self._ask_voter_and_vote(+1)), 'break'))
 
@@ -765,17 +766,17 @@ class MusicPlayer(ctk.CTk):
         self._voter_var = tk.StringVar(value='')
         self._voter_dropdown = ctk.CTkOptionMenu(
             top_bar, variable=self._voter_var,
-            values=['(anonymous)'], width=110, height=30,
-            font=ctk.CTkFont(size=11),
+            values=['(anonymous)'], width=100, height=26,
+            font=ctk.CTkFont(size=10),
             fg_color='#3b3b3b', button_color='#4a4a4a',
             dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5')
-        self._voter_dropdown.pack(side='right', padx=(4, 4), pady=7)
+        self._voter_dropdown.pack(side='right', padx=(4, 4), pady=4)
         self._voter_dropdown.set('(anonymous)')
 
         self._lbl_rating = ctk.CTkLabel(top_bar, text='\u2014',
-                                         font=ctk.CTkFont(size=20, weight='bold'),
-                                         text_color='#888888', width=40)
-        self._lbl_rating.pack(side='right', padx=(4, 4), pady=7)
+                                         font=ctk.CTkFont(size=16, weight='bold'),
+                                         text_color='#888888', width=36)
+        self._lbl_rating.pack(side='right', padx=(4, 4), pady=4)
 
         self.load_progress = ctk.CTkProgressBar(top_bar, mode='determinate', width=200)
         self.load_progress.set(0)
@@ -786,23 +787,23 @@ class MusicPlayer(ctk.CTk):
         scrub_frame.pack(fill='x', padx=0)
 
         scrub_inner = ctk.CTkFrame(scrub_frame, fg_color='transparent')
-        scrub_inner.pack(fill='x', padx=20, pady=(2, 6))
+        scrub_inner.pack(fill='x', padx=14, pady=(1, 3))
 
-        self.lbl_time_cur = ctk.CTkLabel(scrub_inner, text='0:00', font=ctk.CTkFont(size=12), width=50)
+        self.lbl_time_cur = ctk.CTkLabel(scrub_inner, text='0:00', font=ctk.CTkFont(size=11), width=44)
         self.lbl_time_cur.pack(side='left')
 
         self._scrub_var = tk.DoubleVar(value=0)
         self._user_scrubbing = False
         self.scrub_slider = ctk.CTkSlider(scrub_inner, from_=0, to=1.0, variable=self._scrub_var,
-                                          command=self._on_scrub, height=20,
+                                          command=self._on_scrub, height=16,
                                           button_color='#00bcd4', button_hover_color='#26c6da',
                                           progress_color='#00bcd4')
-        self.scrub_slider.pack(side='left', fill='x', expand=True, padx=6)
+        self.scrub_slider.pack(side='left', fill='x', expand=True, padx=4)
         self.scrub_slider.set(0)
         self.scrub_slider.bind('<ButtonPress-1>', lambda e: setattr(self, '_user_scrubbing', True))
         self.scrub_slider.bind('<ButtonRelease-1>', self._on_scrub_release)
 
-        self.lbl_time_total = ctk.CTkLabel(scrub_inner, text='0:00', font=ctk.CTkFont(size=12), width=50)
+        self.lbl_time_total = ctk.CTkLabel(scrub_inner, text='0:00', font=ctk.CTkFont(size=11), width=44)
         self.lbl_time_total.pack(side='left')
 
         # ═══ PLAY CONTROLS (under scrub bar) ═══
@@ -810,18 +811,18 @@ class MusicPlayer(ctk.CTk):
         self._controls_frame.pack(fill='x')
 
         btn_row = ctk.CTkFrame(self._controls_frame, fg_color='transparent')
-        btn_row.pack(fill='x', padx=20, pady=(6, 10))
+        btn_row.pack(fill='x', padx=14, pady=(2, 4))
         btn_row.columnconfigure(0, weight=2)
         btn_row.columnconfigure(1, weight=1)
         btn_row.columnconfigure(2, weight=0)
 
-        self.btn_play = ctk.CTkButton(btn_row, text='\u25b6', height=50,
-                                      font=ctk.CTkFont(size=28), command=self.play_pause,
+        self.btn_play = ctk.CTkButton(btn_row, text='\u25b6', height=36,
+                                      font=ctk.CTkFont(size=22), command=self.play_pause,
                                       fg_color='#1f6aa5', hover_color='#1a5a8a')
         self.btn_play.grid(row=0, column=0, sticky='ew', padx=(0, 3))
 
-        self.btn_stop = ctk.CTkButton(btn_row, text='\u23f9', height=50,
-                                      font=ctk.CTkFont(size=28), command=self.stop,
+        self.btn_stop = ctk.CTkButton(btn_row, text='\u23f9', height=36,
+                                      font=ctk.CTkFont(size=22), command=self.stop,
                                       fg_color='#c0392b', hover_color='#e74c3c')
         self.btn_stop.grid(row=0, column=1, sticky='ew', padx=(3, 3))
 
@@ -829,40 +830,40 @@ class MusicPlayer(ctk.CTk):
         self._speed_frame = ctk.CTkFrame(btn_row, fg_color='#2b2b2b', corner_radius=8)
         self._speed_frame.grid(row=0, column=2, sticky='ns', padx=(3, 0))
 
-        ctk.CTkLabel(self._speed_frame, text='Speed', font=ctk.CTkFont(size=9),
-                     text_color='#888888').pack(pady=(4, 0))
+        ctk.CTkLabel(self._speed_frame, text='Speed', font=ctk.CTkFont(size=8),
+                     text_color='#888888').pack(pady=(2, 0))
         self._speed_var = tk.DoubleVar(value=1.0)
-        self._speed_label = ctk.CTkLabel(self._speed_frame, text='1.0×', font=ctk.CTkFont(size=11, weight='bold'))
-        self._speed_label.pack(pady=(0, 2))
-        speed_down = ctk.CTkButton(self._speed_frame, text='−', width=28, height=20,
-                                    font=ctk.CTkFont(size=14), fg_color='#3b3b3b',
+        self._speed_label = ctk.CTkLabel(self._speed_frame, text='1.0×', font=ctk.CTkFont(size=10, weight='bold'))
+        self._speed_label.pack(pady=(0, 1))
+        speed_down = ctk.CTkButton(self._speed_frame, text='−', width=26, height=18,
+                                    font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
                                     command=self._speed_down)
-        speed_down.pack(side='left', padx=(4, 1), pady=(0, 4))
-        speed_reset = ctk.CTkButton(self._speed_frame, text='1×', width=28, height=20,
-                                     font=ctk.CTkFont(size=10), fg_color='#3b3b3b',
+        speed_down.pack(side='left', padx=(3, 1), pady=(0, 2))
+        speed_reset = ctk.CTkButton(self._speed_frame, text='1×', width=26, height=18,
+                                     font=ctk.CTkFont(size=9), fg_color='#3b3b3b',
                                      command=self._speed_reset)
-        speed_reset.pack(side='left', padx=1, pady=(0, 4))
-        speed_up = ctk.CTkButton(self._speed_frame, text='+', width=28, height=20,
-                                  font=ctk.CTkFont(size=14), fg_color='#3b3b3b',
+        speed_reset.pack(side='left', padx=1, pady=(0, 2))
+        speed_up = ctk.CTkButton(self._speed_frame, text='+', width=26, height=18,
+                                  font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
                                   command=self._speed_up)
-        speed_up.pack(side='left', padx=(1, 4), pady=(0, 4))
+        speed_up.pack(side='left', padx=(1, 3), pady=(0, 2))
 
         self._auto_reset_speed = tk.BooleanVar(value=True)
         _cb_auto_reset = ctk.CTkCheckBox(self._speed_frame, text='Auto', variable=self._auto_reset_speed,
-                                          font=ctk.CTkFont(size=9), width=20, height=16,
-                                          checkbox_width=16, checkbox_height=16)
-        _cb_auto_reset.pack(pady=(0, 4))
+                                          font=ctk.CTkFont(size=8), width=18, height=14,
+                                          checkbox_width=14, checkbox_height=14)
+        _cb_auto_reset.pack(pady=(0, 2))
 
         # ═══ PLAY NOW BAR (under play controls, hidden until track selected) ═══
         self._play_bar = ctk.CTkFrame(_content, fg_color='transparent')
-        self.btn_play_now = ctk.CTkButton(self._play_bar, text='\u25b6  Play Now', height=44,
-                                          font=ctk.CTkFont(size=20, weight='bold'),
+        self.btn_play_now = ctk.CTkButton(self._play_bar, text='\u25b6  Play Now', height=30,
+                                          font=ctk.CTkFont(size=15, weight='bold'),
                                           fg_color='#f1c40f', hover_color='#f39c12',
                                           text_color='#000000',
                                           command=self._play_now_click)
         self.btn_play_now.pack(side='left', fill='x', expand=True, padx=(0, 3))
-        self.btn_play_next = ctk.CTkButton(self._play_bar, text='\u23ed  Play Next', height=44,
-                                           font=ctk.CTkFont(size=16, weight='bold'),
+        self.btn_play_next = ctk.CTkButton(self._play_bar, text='\u23ed  Play Next', height=30,
+                                           font=ctk.CTkFont(size=13, weight='bold'),
                                            fg_color='#e67e22', hover_color='#d35400',
                                            text_color='#000000',
                                            command=self._play_next_click)
@@ -873,7 +874,7 @@ class MusicPlayer(ctk.CTk):
 
         # ═══ MAIN AREA: Browse + Queue ═══
         main_area = ctk.CTkFrame(_content, fg_color='transparent')
-        main_area.pack(fill='both', expand=True, padx=6, pady=(10, 4))
+        main_area.pack(fill='both', expand=True, padx=4, pady=(4, 2))
 
         # ── PLAY QUEUE PANEL (right side of browse area) ──
         queue_panel = ctk.CTkFrame(main_area, width=200, fg_color='#2b2b2b', corner_radius=8)
@@ -986,18 +987,18 @@ class MusicPlayer(ctk.CTk):
 
         # ── Filter Row 1: Rating + Liked by ──
         filter_row1 = ctk.CTkFrame(browse, fg_color='transparent')
-        filter_row1.pack(fill='x', padx=8, pady=(8, 2))
+        filter_row1.pack(fill='x', padx=6, pady=(4, 1))
         filter_row1.columnconfigure(1, weight=1)   # rating dropdown
         filter_row1.columnconfigure(3, weight=2)   # liked-by dropdown
         filter_row1.columnconfigure(4, weight=0)   # spacer
 
-        _dd_style = dict(height=26, font=ctk.CTkFont(size=11),
+        _dd_style = dict(height=24, font=ctk.CTkFont(size=10),
                          fg_color='#3b3b3b', button_color='#4a4a4a',
                          button_hover_color='#555555',
                          dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
                          dropdown_text_color='#dce4ee')
 
-        ctk.CTkLabel(filter_row1, text='Rating', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(filter_row1, text='Rating', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
         self._rating_filter_var = tk.StringVar(value='All')
         rating_vals = ['All', '≥ 1', '≥ 2', '≥ 3', '≥ 5', '≥ 10', '≤ -1', '≤ -3', '= 0']
         self._rating_filter_dropdown = ctk.CTkOptionMenu(
@@ -1005,7 +1006,7 @@ class MusicPlayer(ctk.CTk):
             values=rating_vals, command=self._on_rating_filter, **_dd_style)
         self._rating_filter_dropdown.grid(row=0, column=1, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row1, text='Liked by', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(filter_row1, text='Liked by', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
         self._liked_by_var = tk.StringVar(value='All')
         self._liked_by_dropdown = ctk.CTkOptionMenu(
             filter_row1, variable=self._liked_by_var,
@@ -1023,34 +1024,34 @@ class MusicPlayer(ctk.CTk):
 
         # ── Filter Row 2: First Played + Last Played + File Created + Length ──
         filter_row2 = ctk.CTkFrame(browse, fg_color='transparent')
-        filter_row2.pack(fill='x', padx=8, pady=(0, 4))
+        filter_row2.pack(fill='x', padx=6, pady=(0, 2))
         filter_row2.columnconfigure(1, weight=1)
         filter_row2.columnconfigure(3, weight=1)
         filter_row2.columnconfigure(5, weight=1)
         filter_row2.columnconfigure(7, weight=1)
 
-        ctk.CTkLabel(filter_row2, text='First Played', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(filter_row2, text='First Played', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=0, sticky='w', padx=(0, 4))
         self._first_played_var = tk.StringVar(value='All')
         self._first_played_dropdown = ctk.CTkOptionMenu(
             filter_row2, variable=self._first_played_var,
             values=['All', 'Today', 'This Week', 'This Month'], command=self._on_first_played_filter, **_dd_style)
         self._first_played_dropdown.grid(row=0, column=1, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row2, text='Last Played', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(filter_row2, text='Last Played', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=2, sticky='w', padx=(0, 4))
         self._last_played_var = tk.StringVar(value='All')
         self._last_played_dropdown = ctk.CTkOptionMenu(
             filter_row2, variable=self._last_played_var,
             values=['All', 'Today', 'This Week', 'This Month'], command=self._on_last_played_filter, **_dd_style)
         self._last_played_dropdown.grid(row=0, column=3, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row2, text='File Created', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=4, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(filter_row2, text='File Created', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=4, sticky='w', padx=(0, 4))
         self._file_created_var = tk.StringVar(value='All')
         self._file_created_dropdown = ctk.CTkOptionMenu(
             filter_row2, variable=self._file_created_var,
             values=['All', 'Today', 'This Week', 'This Month'], command=self._on_file_created_filter, **_dd_style)
         self._file_created_dropdown.grid(row=0, column=5, sticky='ew', padx=(0, 10))
 
-        ctk.CTkLabel(filter_row2, text='Length', font=ctk.CTkFont(size=11, weight='bold')).grid(row=0, column=6, sticky='w', padx=(0, 4))
+        ctk.CTkLabel(filter_row2, text='Length', font=ctk.CTkFont(size=10, weight='bold')).grid(row=0, column=6, sticky='w', padx=(0, 4))
         self._length_filter_var = tk.StringVar(value='All')
         self._length_filter_dropdown = ctk.CTkOptionMenu(
             filter_row2, variable=self._length_filter_var,
@@ -1059,21 +1060,21 @@ class MusicPlayer(ctk.CTk):
 
         # Track list section
         tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
-        tree_frame.pack(fill='both', expand=True, padx=6, pady=(0, 6))
+        tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 4))
 
         # Tag filter bar — scrollable multi-row wrapping layout
         self.tag_bar_frame = ctk.CTkScrollableFrame(
             tree_frame, fg_color='#2b2b2b', corner_radius=6,
-            height=70, orientation='vertical')
-        self.tag_bar_frame.pack(fill='x', pady=(0, 4))
+            height=50, orientation='vertical')
+        self.tag_bar_frame.pack(fill='x', pady=(0, 2))
 
         # Search box (below tags)
         self._search_var = tk.StringVar()
         self._search_var.trace_add('write', lambda *_: self._debounced_search())
         self._search_entry = ctk.CTkEntry(tree_frame, textvariable=self._search_var,
                                            placeholder_text='\U0001f50d  Search title, comment, tags, liked by\u2026',
-                                           height=30, font=ctk.CTkFont(size=12))
-        self._search_entry.pack(fill='x', pady=(0, 4))
+                                           height=26, font=ctk.CTkFont(size=11))
+        self._search_entry.pack(fill='x', pady=(0, 2))
 
         # Track count label
         self._track_count_lbl = ctk.CTkLabel(tree_frame, text='0 tracks',
@@ -1085,7 +1086,7 @@ class MusicPlayer(ctk.CTk):
                               'Plays', 'First Played', 'Last Played', 'File Created')
         self.tree = ttk.Treeview(tree_frame,
                                  columns=self._all_columns,
-                                 show='headings', height=18)
+                                 show='headings', height=8)
         self.tree.column('Title', width=200, anchor='w')
         self.tree.column('Length', width=55, anchor='center')
         self.tree.column('Rating', width=55, anchor='center')
@@ -1143,11 +1144,17 @@ class MusicPlayer(ctk.CTk):
         self.bind('<Left>', lambda e: self._prev_track() if not isinstance(e.widget, (tk.Entry, ctk.CTkEntry)) else None)
         self.bind('<Escape>', lambda e: self.stop())
         self.bind('<Control-f>', lambda e: self._focus_search())
+        self.bind('<F11>', lambda e: self._toggle_fullscreen())
 
     def _focus_search(self):
         """Focus the search box."""
         if hasattr(self, '_search_entry'):
             self._search_entry.focus_set()
+
+    def _toggle_fullscreen(self):
+        """Toggle fullscreen mode (F11)."""
+        current = self.attributes('-fullscreen')
+        self.attributes('-fullscreen', not current)
 
     def _prev_track(self):
         if not self.playlist or not self.display_indices:
@@ -1175,6 +1182,9 @@ class MusicPlayer(ctk.CTk):
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label='Add Files\u2026', command=self.add_files)
         menu.add_command(label='Add Folder\u2026', command=self.add_folder)
+        menu.add_separator()
+        fs_label = 'Exit Fullscreen' if self.attributes('-fullscreen') else 'Fullscreen (F11)'
+        menu.add_command(label=fs_label, command=self._toggle_fullscreen)
         x = self.btn_menu.winfo_rootx()
         y = self.btn_menu.winfo_rooty() + self.btn_menu.winfo_height()
         try:
@@ -3057,7 +3067,7 @@ class MusicPlayer(ctk.CTk):
         self.btn_play_next.configure(state='normal',
                                      fg_color='#e67e22', text_color='#000000')
         if not self._play_now_visible:
-            self._play_bar.pack(fill='x', padx=20, pady=(0, 6), after=self._controls_frame)
+            self._play_bar.pack(fill='x', padx=14, pady=(0, 2), after=self._controls_frame)
             self._play_now_visible = True
 
     def _play_now_click(self):
