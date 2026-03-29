@@ -1705,6 +1705,18 @@ class MusicPlayer(ctk.CTk):
         btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
         btn_row.pack(fill='x', padx=20, pady=(14, 12))
 
+        # Progress area (hidden until import starts)
+        progress_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        prog_bar = ctk.CTkProgressBar(progress_frame, mode='determinate', width=400)
+        prog_bar.set(0)
+        prog_bar.pack(fill='x', padx=10, pady=(4, 2))
+        prog_label = ctk.CTkLabel(progress_frame, text='', font=ctk.CTkFont(size=10),
+                                  text_color='#aaaaaa')
+        prog_label.pack(anchor='w', padx=10)
+        log_box = ctk.CTkTextbox(progress_frame, height=160, font=ctk.CTkFont(size=10),
+                                 fg_color='#1a1a2e', text_color='#cccccc')
+        log_box.pack(fill='both', expand=True, padx=10, pady=(2, 8))
+
         def do_import():
             xml_path = xml_var.get().strip()
             rb_root = root_var.get().strip().rstrip('/')
@@ -1714,30 +1726,38 @@ class MusicPlayer(ctk.CTk):
             if not rb_root:
                 messagebox.showerror('Error', 'Please specify the Rhythmbox music root folder.', parent=dialog)
                 return
-            dialog.destroy()
-            self._import_rhythmbox(xml_path, rb_root)
+            # Switch to progress view
+            for child in btn_row.winfo_children():
+                child.configure(state='disabled')
+            dialog.geometry('600x480')
+            progress_frame.pack(fill='both', expand=True, padx=20, pady=(0, 10))
+            dialog.update_idletasks()
+            self._import_rhythmbox(xml_path, rb_root, prog_bar, prog_label, log_box, dialog)
 
         ctk.CTkButton(btn_row, text='Import', width=120, fg_color='#27ae60',
                       hover_color='#2ecc71', command=do_import).pack(side='left', padx=(0, 8))
         ctk.CTkButton(btn_row, text='Cancel', width=80, fg_color='#4a4a4a',
                       hover_color='#555555', command=dialog.destroy).pack(side='left')
 
-    def _import_rhythmbox(self, xml_path, rb_root):
+    def _import_rhythmbox(self, xml_path, rb_root, prog_bar, prog_label, log_box, dialog):
         """Parse rhythmdb.xml and import ratings/comments into the DB.
 
         Ratings (0-5 stars) are converted to anonymous +1 votes:
         e.g. rating=4 → 4 anonymous +1 votes for that track.
         Comments are written to the tracks.comment column.
         """
+        def log(msg):
+            log_box.insert('end', msg + '\n')
+            log_box.see('end')
+            dialog.update_idletasks()
+
         self._log_action('import_rhythmbox', xml_path)
-        self.lbl_now_playing.configure(text='Importing Rhythmbox data\u2026')
-        self.update_idletasks()
+        log('Parsing rhythmdb.xml\u2026')
 
         try:
             tree = ET.parse(xml_path)
         except ET.ParseError as e:
-            messagebox.showerror('Import Error', f'Failed to parse XML:\n{e}')
-            self.lbl_now_playing.configure(text='Not Playing')
+            log(f'ERROR: Failed to parse XML: {e}')
             return
 
         root = tree.getroot()
@@ -1745,24 +1765,27 @@ class MusicPlayer(ctk.CTk):
         if not rb_root_prefix.endswith('/'):
             rb_root_prefix += '/'
 
+        # Count song entries for progress
+        song_entries = [e for e in root.findall('entry') if e.get('type') == 'song']
+        total = len(song_entries)
+        log(f'Found {total} song entries')
+
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         now = datetime.now(tz=timezone.utc).isoformat()
         imported_ratings = 0
         imported_comments = 0
+        matched = 0
         skipped = 0
 
-        for entry in root.findall('entry'):
-            if entry.get('type') != 'song':
-                continue
-
+        for i, entry in enumerate(song_entries, 1):
             loc_el = entry.find('location')
             if loc_el is None or not loc_el.text:
+                skipped += 1
                 continue
 
             # Decode the URL-encoded file:// path → absolute path → relative path
-            raw_url = loc_el.text  # e.g. file:///home/shauns/Music/song%20name.mp3
-            # Strip file:// prefix and URL-decode
+            raw_url = loc_el.text
             if raw_url.startswith('file://'):
                 abs_path = unquote(raw_url[len('file://'):])
             else:
@@ -1783,6 +1806,10 @@ class MusicPlayer(ctk.CTk):
                 skipped += 1
                 continue
             track_id = row[0]
+            matched += 1
+
+            title_el = entry.find('title')
+            title = title_el.text if title_el is not None and title_el.text else os.path.basename(rel_path)
 
             # Import rating as anonymous +1 votes
             rating_el = entry.find('rating')
@@ -1797,6 +1824,7 @@ class MusicPlayer(ctk.CTk):
                             "INSERT INTO track_votes (track_id, vote, voter, voted_at) VALUES (?, ?, ?, ?)",
                             (track_id, 1, '', now))
                     imported_ratings += 1
+                    log(f'  \u2b50 {title} \u2192 {stars} votes')
 
             # Import comment
             comment_el = entry.find('comment')
@@ -1806,18 +1834,26 @@ class MusicPlayer(ctk.CTk):
                             (comment_text, track_id))
                 if cur.rowcount > 0:
                     imported_comments += 1
+                    log(f'  \U0001f4ac {title} \u2192 "{comment_text[:60]}"')
+
+            # Update progress
+            if i % 50 == 0 or i == total:
+                prog_bar.set(i / total)
+                prog_label.configure(text=f'{i}/{total}  |  matched: {matched}  |  ratings: {imported_ratings}  |  comments: {imported_comments}  |  skipped: {skipped}')
+                dialog.update_idletasks()
 
         con.commit()
         con.close()
+        prog_bar.set(1.0)
+
+        summary = (f'Done!  Ratings: {imported_ratings}  |  Comments: {imported_comments}  |  '
+                   f'Matched: {matched}  |  Skipped: {skipped}')
+        prog_label.configure(text=summary)
+        log(f'\n{summary}')
+        self._log_action('import_rhythmbox_done', f'ratings={imported_ratings} comments={imported_comments} skipped={skipped}')
 
         # Reload to pick up the new votes/comments
         self._load_tracks_from_db()
-        summary = (f'Rhythmbox import complete:\n\n'
-                   f'  Ratings imported: {imported_ratings} tracks\n'
-                   f'  Comments imported: {imported_comments} tracks\n'
-                   f'  Skipped (not in library): {skipped} entries')
-        self._log_action('import_rhythmbox_done', f'ratings={imported_ratings} comments={imported_comments} skipped={skipped}')
-        messagebox.showinfo('Import Complete', summary)
 
     # ── Library root ─────────────────────────────────────
 
