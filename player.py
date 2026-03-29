@@ -580,8 +580,7 @@ class MusicPlayer(ctk.CTk):
                 entry.setdefault('liked_by', set()).add(voter)
             else:
                 entry.setdefault('disliked_by', set()).add(voter)
-        self._apply_filter()
-        self._build_tag_bar()
+        self._update_single_row(playlist_idx)
         self._update_rating_display()
         self._rebuild_liked_by_dropdown()
 
@@ -871,6 +870,7 @@ class MusicPlayer(ctk.CTk):
         self._play_now_visible = False
 
         self._tag_buttons = []
+        self._tag_btn_map = {}
 
         # ═══ MAIN AREA: Browse + Queue ═══
         main_area = ctk.CTkFrame(_content, fg_color='transparent')
@@ -1337,6 +1337,7 @@ class MusicPlayer(ctk.CTk):
         for btn in self._tag_buttons:
             btn.destroy()
         self._tag_buttons = []
+        self._tag_btn_map = {}  # tag_name -> button (for in-place highlight updates)
 
         visible_tags = set()
         for idx in self.display_indices:
@@ -1365,6 +1366,7 @@ class MusicPlayer(ctk.CTk):
                                 command=lambda: self._on_tag_filter('All'))
         btn_all.grid(row=0, column=0, padx=(4, 2), pady=2)
         self._tag_buttons.append(btn_all)
+        self._tag_btn_map['__ALL__'] = btn_all
 
         col = 1
         row = 0
@@ -1380,7 +1382,20 @@ class MusicPlayer(ctk.CTk):
                                 command=lambda t=tag: self._on_tag_filter(t))
             btn.grid(row=row, column=col, padx=2, pady=2)
             self._tag_buttons.append(btn)
+            self._tag_btn_map[tag] = btn
             col += 1
+
+    def _update_tag_highlights(self):
+        """Update tag button colours in-place without destroying/recreating."""
+        all_active = not self._active_tags
+        for tag_key, btn in self._tag_btn_map.items():
+            try:
+                if tag_key == '__ALL__':
+                    btn.configure(fg_color='#1f6aa5' if all_active else 'transparent')
+                else:
+                    btn.configure(fg_color='#1f6aa5' if tag_key in self._active_tags else 'transparent')
+            except Exception:
+                pass
 
     def _on_tag_filter(self, tag):
         if tag == 'All':
@@ -1390,8 +1405,9 @@ class MusicPlayer(ctk.CTk):
                 self._active_tags.discard(tag)
             else:
                 self._active_tags.add(tag)
+        # Update tag button highlights in-place (no rebuild) — avoids flash
+        self._update_tag_highlights()
         self._apply_filter()
-        self._build_tag_bar()
 
     def _add_new_tag(self, parent_window=None, callback=None):
         """Create a new tag (globally). Optionally apply to selected tracks."""
@@ -1881,8 +1897,8 @@ class MusicPlayer(ctk.CTk):
             except (ValueError, IndexError):
                 pass
 
-        for item in all_items:
-            self.tree.delete(item)
+        if all_items:
+            self.tree.delete(*all_items)
         self.display_indices = []
 
         genre_filter = self._get_genres_for_filter()
@@ -2013,7 +2029,8 @@ class MusicPlayer(ctk.CTk):
             key_fn = self._SORT_KEYS[self._sort_column]
             matched.sort(key=lambda i: key_fn(self.playlist[i]), reverse=self._sort_reverse)
 
-        # Phase 3: insert into treeview
+        # Phase 3: insert into treeview (batch for speed)
+        self.tree.configure(selectmode='none')   # suppress selection events during bulk insert
         for idx in matched:
             entry = self.playlist[idx]
             title = entry.get('title', entry['basename'])
@@ -2028,14 +2045,15 @@ class MusicPlayer(ctk.CTk):
             first_p = self._format_ts(entry.get('first_played'), relative=False)
             last_p = self._format_ts(entry.get('last_played'), relative=True)
             file_c = self._format_ts(entry.get('file_created'), relative=False)
-            row_tags = []
+            row_tags = ()
             if idx == self.current_index and self.is_playing:
-                row_tags.append(self._now_playing_tag)
+                row_tags = (self._now_playing_tag,)
             self.tree.insert('', 'end',
                              values=(title, length_str, rating_str, comment, tags_str, liked_str, disliked_str,
                                      plays, first_p, last_p, file_c),
-                             tags=tuple(row_tags))
+                             tags=row_tags)
             self.display_indices.append(idx)
+        self.tree.configure(selectmode='extended')  # restore selection mode
 
         # Restore selection
         if prev_selected:
@@ -2154,16 +2172,60 @@ class MusicPlayer(ctk.CTk):
     def _update_now_playing_highlight(self):
         """Update the now-playing row tag without rebuilding the treeview."""
         all_items = self.tree.get_children()
-        for pos, item in enumerate(all_items):
-            tags = list(self.tree.item(item, 'tags'))
-            pl_idx = self.display_indices[pos] if pos < len(self.display_indices) else None
-            is_current = pl_idx == self.current_index and self.is_playing
-            if is_current and self._now_playing_tag not in tags:
-                tags.append(self._now_playing_tag)
-                self.tree.item(item, tags=tags)
-            elif not is_current and self._now_playing_tag in tags:
-                tags.remove(self._now_playing_tag)
-                self.tree.item(item, tags=tags)
+        if not all_items:
+            return
+        # Only touch the specific item that needs updating, not all items
+        try:
+            if self.current_index is not None and self.is_playing:
+                pos = self.display_indices.index(self.current_index)
+                if pos < len(all_items):
+                    item = all_items[pos]
+                    tags = list(self.tree.item(item, 'tags'))
+                    if self._now_playing_tag not in tags:
+                        tags.append(self._now_playing_tag)
+                        self.tree.item(item, tags=tags)
+        except ValueError:
+            pass
+        # Also clear the tag from the previous now-playing item if needed
+        if hasattr(self, '_prev_now_playing_pos'):
+            prev_pos = self._prev_now_playing_pos
+            if prev_pos is not None and prev_pos < len(all_items):
+                item = all_items[prev_pos]
+                tags = list(self.tree.item(item, 'tags'))
+                if self._now_playing_tag in tags:
+                    tags.remove(self._now_playing_tag)
+                    self.tree.item(item, tags=tags)
+        # Remember current position for next time
+        try:
+            self._prev_now_playing_pos = self.display_indices.index(self.current_index) if (self.current_index is not None and self.is_playing) else None
+        except ValueError:
+            self._prev_now_playing_pos = None
+
+    def _update_single_row(self, playlist_idx):
+        """Update one row's values in the treeview without a full rebuild."""
+        try:
+            pos = self.display_indices.index(playlist_idx)
+        except ValueError:
+            return
+        all_items = self.tree.get_children()
+        if pos >= len(all_items):
+            return
+        entry = self.playlist[playlist_idx]
+        title = entry.get('title', entry['basename'])
+        length_str = self._format_duration(entry.get('length'))
+        rating = entry.get('rating', 0)
+        rating_str = f'+{rating}' if rating > 0 else str(rating)
+        comment = entry.get('comment', '')
+        tags_str = ', '.join(sorted(t.upper() for t in entry.get('tags', []))) if entry.get('tags') else '\u2014'
+        liked_str = ', '.join(sorted(entry.get('liked_by', set()))) if entry.get('liked_by') else '\u2014'
+        disliked_str = ', '.join(sorted(entry.get('disliked_by', set()))) if entry.get('disliked_by') else '\u2014'
+        plays = entry.get('play_count', 0)
+        first_p = self._format_ts(entry.get('first_played'), relative=False)
+        last_p = self._format_ts(entry.get('last_played'), relative=True)
+        file_c = self._format_ts(entry.get('file_created'), relative=False)
+        self.tree.item(all_items[pos],
+                       values=(title, length_str, rating_str, comment, tags_str, liked_str, disliked_str,
+                               plays, first_p, last_p, file_c))
 
     def _load(self, index):
         if index is None or index < 0 or index >= len(self.playlist):
@@ -3225,7 +3287,8 @@ class MusicPlayer(ctk.CTk):
                 entry['play_count'] = stats[0]
                 entry['first_played'] = stats[1]
                 entry['last_played'] = stats[2]
-                self._apply_filter()
+                # Update just the single row instead of full treeview rebuild
+                self._update_single_row(self.current_index)
 
         if not is_playing and self._last_action == 'playing' and not self.is_paused:
             # Guard: don't auto-advance within 1.5s of play being issued (VLC async startup)
