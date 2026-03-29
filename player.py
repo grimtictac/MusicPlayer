@@ -1419,13 +1419,18 @@ class MusicPlayer(ctk.CTk):
             # Apply to selected tracks if any
             sel = self.tree.selection()
             all_items = self.tree.get_children()
+            updated_indices = []
             for item in sel:
                 try:
                     idx = list(all_items).index(item)
-                    self._add_tag_to_track(self.display_indices[idx], tag)
+                    pl_idx = self.display_indices[idx]
+                    self._add_tag_to_track(pl_idx, tag)
+                    updated_indices.append(pl_idx)
                 except (ValueError, IndexError):
                     pass
-            self._apply_filter()
+            # Update only the affected rows instead of full rebuild
+            for pl_idx in updated_indices:
+                self._update_single_row(pl_idx)
             self._build_tag_bar()
             if callback:
                 callback()
@@ -2029,8 +2034,8 @@ class MusicPlayer(ctk.CTk):
             key_fn = self._SORT_KEYS[self._sort_column]
             matched.sort(key=lambda i: key_fn(self.playlist[i]), reverse=self._sort_reverse)
 
-        # Phase 3: insert into treeview (batch for speed)
-        self.tree.configure(selectmode='none')   # suppress selection events during bulk insert
+        # Phase 3: build row data (pure Python — fast)
+        row_data = []
         for idx in matched:
             entry = self.playlist[idx]
             title = entry.get('title', entry['basename'])
@@ -2048,12 +2053,21 @@ class MusicPlayer(ctk.CTk):
             row_tags = ()
             if idx == self.current_index and self.is_playing:
                 row_tags = (self._now_playing_tag,)
-            self.tree.insert('', 'end',
-                             values=(title, length_str, rating_str, comment, tags_str, liked_str, disliked_str,
-                                     plays, first_p, last_p, file_c),
-                             tags=row_tags)
-            self.display_indices.append(idx)
-        self.tree.configure(selectmode='extended')  # restore selection mode
+            row_data.append((idx, (title, length_str, rating_str, comment, tags_str,
+                                    liked_str, disliked_str, plays, first_p, last_p, file_c),
+                             row_tags))
+
+        # Phase 4: insert into treeview in chunks (keeps UI responsive)
+        CHUNK = 500
+        self.tree.configure(selectmode='none')
+        for start in range(0, len(row_data), CHUNK):
+            chunk = row_data[start:start + CHUNK]
+            for idx, vals, rtags in chunk:
+                self.tree.insert('', 'end', values=vals, tags=rtags)
+                self.display_indices.append(idx)
+            if start + CHUNK < len(row_data):
+                self.update_idletasks()
+        self.tree.configure(selectmode='extended')
 
         # Restore selection
         if prev_selected:
@@ -2983,7 +2997,7 @@ class MusicPlayer(ctk.CTk):
             con.execute("UPDATE tracks SET title = ? WHERE file_path = ?", (new_val.strip(), entry['path']))
             con.commit()
             con.close()
-            self._apply_filter()
+            self._update_single_row(playlist_idx)
 
     def _context_set_genre(self, playlist_idx, new_genre):
         """Quick-set genre from the submenu without opening a dialog."""
@@ -2995,7 +3009,11 @@ class MusicPlayer(ctk.CTk):
         con.commit()
         con.close()
         self._build_genre_list()
-        self._apply_filter()
+        # Only need full filter if genre filter is active, otherwise single-row update
+        if self._active_genre != 'All':
+            self._apply_filter()
+        else:
+            self._update_single_row(playlist_idx)
 
     def _context_edit_genre(self, playlist_idx):
         entry = self.playlist[playlist_idx]
@@ -3051,7 +3069,10 @@ class MusicPlayer(ctk.CTk):
             con.commit()
             con.close()
             self._build_genre_list()
-            self._apply_filter()
+            if self._active_genre != 'All':
+                self._apply_filter()
+            else:
+                self._update_single_row(playlist_idx)
             dialog.destroy()
 
         btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
@@ -3071,14 +3092,14 @@ class MusicPlayer(ctk.CTk):
             con.execute("UPDATE tracks SET comment = ? WHERE file_path = ?", (new_val.strip(), entry['path']))
             con.commit()
             con.close()
-            self._apply_filter()
+            self._update_single_row(playlist_idx)
 
     def _context_toggle_tag(self, playlist_idx, tag, currently_applied):
         if currently_applied:
             self._remove_tag_from_track(playlist_idx, tag)
         else:
             self._add_tag_to_track(playlist_idx, tag)
-        self._apply_filter()
+        self._update_single_row(playlist_idx)
         self._build_tag_bar()
 
     def _context_remove(self, playlist_idx):
